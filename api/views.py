@@ -11,6 +11,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from django.http import HttpResponse
 
 from .models import Booking, Profile
 from .utils.email_utils import (
@@ -157,8 +158,18 @@ def reset_password_view(request):
 
 
 @csrf_exempt
-@require_POST
 def register_view(request):
+    if request.method == 'OPTIONS':
+        response = HttpResponse(status=204)
+        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
+        response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        return response
+
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
