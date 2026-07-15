@@ -10,7 +10,10 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,8 +28,18 @@ SECRET_KEY = 'django-insecure-@q=0j8-l^nai!*=v3q(pe39#$1sfqu=00(qcim6a!h=9adbi@o
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]']
-CORS_ALLOW_ALL_ORIGINS = True
+ALLOWED_HOSTS = [
+    'localhost',
+    '127.0.0.1',
+    '[::1]',
+    'myfundihubfront.up.railway.app',
+    'myfundihubback.up.railway.app',
+]
+CORS_ALLOWED_ORIGINS = [
+    'https://myfundihubfront.up.railway.app',
+    'https://myfundihubback.up.railway.app',
+]
+CORS_ALLOW_CREDENTIALS = True
 
 
 # Application definition
@@ -77,12 +90,33 @@ WSGI_APPLICATION = 'fundi_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+DATABASE_URL = os.getenv('DATABASE_URL')
+
+# Prefer Railway's supplied DATABASE_URL first.
+if DATABASE_URL:
+    DATABASES = {
+        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
     }
-}
+# Fallback to the explicit PostgreSQL variables you shared.
+elif os.getenv('PGHOST') or os.getenv('POSTGRES_HOST'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('PGDATABASE') or os.getenv('POSTGRES_DB', 'railway'),
+            'USER': os.getenv('PGUSER') or os.getenv('POSTGRES_USER', 'postgres'),
+            'PASSWORD': os.getenv('PGPASSWORD') or os.getenv('POSTGRES_PASSWORD', ''),
+            'HOST': os.getenv('PGHOST') or os.getenv('POSTGRES_HOST', 'localhost'),
+            'PORT': os.getenv('PGPORT') or os.getenv('POSTGRES_PORT', '5432'),
+        }
+    }
+else:
+    # Local fallback used only when no database URL is available.
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
@@ -106,8 +140,6 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # Internationalization
 # https://docs.djangoproject.com/en/6.0/topics/i18n/
-
-import os
 
 LANGUAGE_CODE = 'en-us'
 
