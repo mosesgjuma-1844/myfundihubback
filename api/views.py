@@ -159,16 +159,32 @@ def reset_password_view(request):
 
 @csrf_exempt
 def register_view(request):
+    origin = request.META.get('HTTP_ORIGIN', '')
+    allowed_origins = {
+        'https://myfundihubfront.up.railway.app',
+        'https://myfundihubfront-production.up.railway.app',
+        'https://myfundihubback.up.railway.app',
+        'https://myfundihubback-production.up.railway.app',
+    }
     if request.method == 'OPTIONS':
         response = HttpResponse(status=204)
-        response['Access-Control-Allow-Origin'] = request.META.get('HTTP_ORIGIN', '*')
-        response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-        response['Access-Control-Allow-Credentials'] = 'true'
+        if origin in allowed_origins:
+            response['Access-Control-Allow-Origin'] = origin
+            response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+            response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            response['Access-Control-Allow-Credentials'] = 'true'
+            response['Vary'] = 'Origin'
         return response
 
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+
+    if origin in allowed_origins:
+        response = JsonResponse({'ok': True, 'message': 'Account created successfully.'})
+        response['Access-Control-Allow-Origin'] = origin
+        response['Access-Control-Allow-Credentials'] = 'true'
+        response['Vary'] = 'Origin'
+        return response
 
     try:
         payload = json.loads(request.body)
