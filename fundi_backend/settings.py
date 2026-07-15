@@ -78,6 +78,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'fundi_backend.middleware.allow_railway_origin',
 ]
 
 ROOT_URLCONF = 'fundi_backend.urls'
