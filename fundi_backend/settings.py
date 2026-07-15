@@ -34,6 +34,8 @@ ALLOWED_HOSTS = [
     '[::1]',
     'myfundihubfront.up.railway.app',
     'myfundihubback.up.railway.app',
+    'myfundihubfront-production.up.railway.app',
+    'myfundihubback-production.up.railway.app',
 ]
 railway_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN')
 if railway_domain:
@@ -42,11 +44,15 @@ if railway_domain:
 CORS_ALLOWED_ORIGINS = [
     'https://myfundihubfront.up.railway.app',
     'https://myfundihubback.up.railway.app',
+    'https://myfundihubfront-production.up.railway.app',
+    'https://myfundihubback-production.up.railway.app',
 ]
 if railway_domain:
     CORS_ALLOWED_ORIGINS.append(f'https://{railway_domain}')
     CORS_ALLOWED_ORIGINS.append(f'http://{railway_domain}')
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = ['*']
+CORS_ALLOW_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 
 
 # Application definition
