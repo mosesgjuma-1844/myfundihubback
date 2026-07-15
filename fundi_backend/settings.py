@@ -23,10 +23,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@q=0j8-l^nai!*=v3q(pe39#$1sfqu=00(qcim6a!h=9adbi@o'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-@q=0j8-l^nai!*=v3q(pe39#$1sfqu=00(qcim6a!h=9adbi@o')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DEBUG', 'True').lower() in {'1', 'true', 'yes', 'on'}
 
 ALLOWED_HOSTS = [
     'localhost',
@@ -35,10 +35,17 @@ ALLOWED_HOSTS = [
     'myfundihubfront.up.railway.app',
     'myfundihubback.up.railway.app',
 ]
+railway_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+if railway_domain:
+    ALLOWED_HOSTS.append(railway_domain)
+
 CORS_ALLOWED_ORIGINS = [
     'https://myfundihubfront.up.railway.app',
     'https://myfundihubback.up.railway.app',
 ]
+if railway_domain:
+    CORS_ALLOWED_ORIGINS.append(f'https://{railway_domain}')
+    CORS_ALLOWED_ORIGINS.append(f'http://{railway_domain}')
 CORS_ALLOW_CREDENTIALS = True
 
 
@@ -154,6 +161,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Email settings
 DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'myfundihub1@gmail.com')
