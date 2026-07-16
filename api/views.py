@@ -44,8 +44,10 @@ def login_view(request):
         return JsonResponse({'ok': False, 'message': 'Email and password are required.'}, status=400)
 
     user = User.objects.filter(email__iexact=email).first() or User.objects.filter(username=email).first()
-    if not user or not user.check_password(password):
-        return JsonResponse({'ok': False, 'message': 'Invalid email or password.'}, status=401)
+    if not user:
+        return JsonResponse({'ok': False, 'message': 'No account found for that email or username. Please register first.'}, status=401)
+    if not user.check_password(password):
+        return JsonResponse({'ok': False, 'message': 'Incorrect password. Please try again.'}, status=401)
 
     profile = getattr(user, 'profile', None)
     actual_role = role
