@@ -104,12 +104,15 @@ WSGI_APPLICATION = 'fundi_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('PGDATABASE_URL') or os.getenv('POSTGRES_URL')
 
-# Prefer Railway's supplied DATABASE_URL first.
+# Prefer Railway's supplied database URL first.
 if DATABASE_URL:
+    parsed_db = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+    if 'railway.internal' in DATABASE_URL or 'postgres' in DATABASE_URL:
+        parsed_db.setdefault('OPTIONS', {})['sslmode'] = 'require'
     DATABASES = {
-        'default': dj_database_url.parse(DATABASE_URL, conn_max_age=600)
+        'default': parsed_db,
     }
 # Fallback to the explicit PostgreSQL variables you shared.
 elif os.getenv('PGHOST') or os.getenv('POSTGRES_HOST'):

@@ -62,6 +62,18 @@ class LoginViewTests(TestCase):
         self.assertTrue(any('Password Reset' in message.subject for message in mail.outbox))
         self.assertTrue(any('forgot@example.com' in message.to for message in mail.outbox))
 
+    def test_register_options_returns_cors_headers_for_allowed_origin(self):
+        response = self.client.options(
+            '/api/auth/register/',
+            HTTP_ORIGIN='https://myfundihubfront-production.up.railway.app',
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response['Access-Control-Allow-Origin'], 'https://myfundihubfront-production.up.railway.app')
+        self.assertEqual(response['Access-Control-Allow-Credentials'], 'true')
+        self.assertIn('OPTIONS', response['Access-Control-Allow-Methods'])
+
     def test_login_returns_user_profile_details(self):
         response = self.client.post(
             '/api/auth/login/',

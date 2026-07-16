@@ -181,13 +181,6 @@ def register_view(request):
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
 
-    if origin in allowed_origins:
-        response = JsonResponse({'ok': True, 'message': 'Account created successfully.'})
-        response['Access-Control-Allow-Origin'] = origin
-        response['Access-Control-Allow-Credentials'] = 'true'
-        response['Vary'] = 'Origin'
-        return response
-
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
