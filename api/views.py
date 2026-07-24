@@ -1,11 +1,12 @@
 import json
 import logging
-import random
-import string
+import secrets
 from datetime import datetime, timedelta
 
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.db.models import Q, Sum
 from django.http import JsonResponse
 from django.utils import timezone
@@ -13,7 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.http import HttpResponse
 
-from .models import Booking, Profile
+from .models import Booking, Profile, PasswordResetCode
 from .utils.email_utils import (
     send_admin_alert,
     send_booking_created,
@@ -22,32 +23,43 @@ from .utils.email_utils import (
     send_password_reset_code,
     send_welcome_email,
 )
+from .utils.auth_utils import (
+    rate_limit,
+    get_tokens_for_user,
+    is_valid_admin_key,
+    get_client_ip,
+    log_security_event,
+)
 
 logger = logging.getLogger(__name__)
-
-_RESET_CODE_STORE = {}
 
 
 @csrf_exempt
 @require_POST
+@rate_limit('login')
 def login_view(request):
+    """
+    Login endpoint with rate limiting and security hardening.
+    Uses generic error messages to prevent user enumeration.
+    """
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
         return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
 
-    email = payload.get('email', '')
-    password = payload.get('password', '')
+    email = payload.get('email', '').strip()
+    password = payload.get('password', '').strip()
     role = payload.get('role', 'customer')
 
     if not email or not password:
-        return JsonResponse({'ok': False, 'message': 'Email and password are required.'}, status=400)
+        return JsonResponse({'ok': False, 'message': 'Invalid credentials.'}, status=401)
 
     user = User.objects.filter(email__iexact=email).first() or User.objects.filter(username=email).first()
-    if not user:
-        return JsonResponse({'ok': False, 'message': 'No account found for that email or username. Please register first.'}, status=401)
-    if not user.check_password(password):
-        return JsonResponse({'ok': False, 'message': 'Incorrect password. Please try again.'}, status=401)
+    
+    if not user or not user.check_password(password):
+        ip = get_client_ip(request)
+        log_security_event('failed_login', email=email, ip=ip)
+        return JsonResponse({'ok': False, 'message': 'Invalid credentials.'}, status=401)
 
     profile = getattr(user, 'profile', None)
     actual_role = role
@@ -61,12 +73,16 @@ def login_view(request):
         redirect_path = '/technician-dashboard'
 
     login(request, user)
+    log_security_event('successful_login', user=user, ip=get_client_ip(request))
+
+    tokens = get_tokens_for_user(user)
 
     return JsonResponse({
         'ok': True,
         'message': f'{actual_role.title()} login accepted.',
         'role': actual_role,
         'redirect': redirect_path,
+        'tokens': tokens,
         'user': {
             'id': user.id,
             'username': user.username,
@@ -80,7 +96,13 @@ def login_view(request):
 
 @csrf_exempt
 @require_POST
+@rate_limit('forgot_password')
 def forgot_password_view(request):
+    """
+    Password reset request with rate limiting.
+    Uses database-based reset codes with expiration.
+    Generic response prevents user enumeration.
+    """
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
@@ -91,25 +113,33 @@ def forgot_password_view(request):
         return JsonResponse({'ok': False, 'message': 'Email is required.'}, status=400)
 
     user = User.objects.filter(email__iexact=email).first()
-    if not user:
-        return JsonResponse({'ok': True, 'message': 'If an account exists for that email, a reset code has been sent.'})
+    
+    # Generic response for security
+    generic_response = JsonResponse({
+        'ok': True,
+        'message': 'If an account exists for that email, a reset code has been sent.'
+    })
 
-    reset_code = ''.join(random.choices(string.digits, k=6))
-    _RESET_CODE_STORE[email] = {
-        'code': reset_code,
-        'user_id': user.id,
-    }
+    if not user:
+        log_security_event('password_reset_nonexistent_user', email=email, ip=get_client_ip(request))
+        return generic_response
+
+    # Create database-based reset code with expiration
+    reset_obj = PasswordResetCode.create_code(user, email, expiry_minutes=15)
+    
     try:
-        send_password_reset_code(user, reset_code, [user.email])
+        send_password_reset_code(user, reset_obj.code, [user.email])
+        log_security_event('password_reset_requested', user=user, ip=get_client_ip(request))
     except Exception:
         logger.exception('Failed to send password reset email')
 
-    return JsonResponse({'ok': True, 'message': 'If an account exists for that email, a reset code has been sent.'})
+    return generic_response
 
 
 @csrf_exempt
 @require_POST
 def verify_reset_code_view(request):
+    """Verify password reset code."""
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
@@ -117,11 +147,15 @@ def verify_reset_code_view(request):
 
     email = (payload.get('email') or '').strip().lower()
     code = (payload.get('code') or '').strip()
+    
     if not email or not code:
         return JsonResponse({'ok': False, 'message': 'Email and code are required.'}, status=400)
 
-    stored = _RESET_CODE_STORE.get(email)
-    if not stored or str(stored.get('code', '')) != str(code):
+    reset_obj = PasswordResetCode.objects.filter(email=email, code=code).first()
+    
+    if not reset_obj or not reset_obj.is_valid():
+        ip = get_client_ip(request)
+        log_security_event('invalid_reset_code_attempt', email=email, ip=ip)
         return JsonResponse({'ok': False, 'message': 'Invalid or expired reset code.'}, status=400)
 
     return JsonResponse({'ok': True, 'message': 'Reset code verified successfully.'})
@@ -129,7 +163,12 @@ def verify_reset_code_view(request):
 
 @csrf_exempt
 @require_POST
+@rate_limit('reset_password')
 def reset_password_view(request):
+    """
+    Reset password using valid reset code.
+    Uses database-based codes with validation and expiration checks.
+    """
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
@@ -138,29 +177,49 @@ def reset_password_view(request):
     email = (payload.get('email') or '').strip().lower()
     code = (payload.get('code') or '').strip()
     password = (payload.get('password') or '').strip()
-    if not email or not code or not password:
+    confirm_password = (payload.get('confirmPassword') or '').strip()
+    
+    if not email or not code or not password or not confirm_password:
         return JsonResponse({'ok': False, 'message': 'Email, code, and password are required.'}, status=400)
 
-    stored = _RESET_CODE_STORE.get(email)
-    if not stored or str(stored.get('code', '')) != str(code):
+    if password != confirm_password:
+        return JsonResponse({'ok': False, 'message': 'Passwords do not match.'}, status=400)
+
+    reset_obj = PasswordResetCode.objects.filter(email=email, code=code).first()
+    
+    if not reset_obj or not reset_obj.is_valid():
+        ip = get_client_ip(request)
+        log_security_event('invalid_password_reset_attempt', email=email, ip=ip)
         return JsonResponse({'ok': False, 'message': 'Invalid or expired reset code.'}, status=400)
 
-    user = User.objects.filter(id=stored.get('user_id')).first()
-    if not user:
-        return JsonResponse({'ok': False, 'message': 'User not found.'}, status=404)
-
-    if len(password) < 8:
-        return JsonResponse({'ok': False, 'message': 'Password must be at least 8 characters long.'}, status=400)
+    user = reset_obj.user
+    
+    # Validate password strength
+    try:
+        validate_password(password, user=user)
+    except ValidationError as e:
+        return JsonResponse({'ok': False, 'message': 'Password does not meet requirements: ' + ', '.join(e.messages)}, status=400)
 
     user.set_password(password)
     user.save(update_fields=['password'])
-    _RESET_CODE_STORE.pop(email, None)
+    reset_obj.mark_as_used()
+    
+    log_security_event('password_reset_successful', user=user, ip=get_client_ip(request))
 
     return JsonResponse({'ok': True, 'message': 'Password reset successfully.'})
 
 
 @csrf_exempt
+@rate_limit('register')
 def register_view(request):
+    """
+    User registration with enhanced security:
+    - Rate limiting
+    - Input validation
+    - Admin key validation
+    - Email verification
+    - Proper password validation
+    """
     origin = request.META.get('HTTP_ORIGIN', '')
     allowed_origins = {
         'https://myfundihubfront.up.railway.app',
@@ -192,44 +251,97 @@ def register_view(request):
     if missing:
         return JsonResponse({'ok': False, 'message': f'Missing required fields: {", ".join(missing)}.'}, status=400)
 
-    if payload.get('password') != payload.get('confirmPassword'):
+    email = payload.get('email', '').strip().lower()
+    username = payload.get('username', '').strip()
+    password = payload.get('password', '').strip()
+    confirm_password = payload.get('confirmPassword', '').strip()
+    confirm_email = payload.get('confirmEmail', '').strip().lower()
+    phone_number = payload.get('phoneNumber', '').strip()
+    role = payload.get('role', 'customer').lower()
+    admin_key = payload.get('adminKey', '').strip()
+
+    # Validate email format
+    if '@' not in email or '.' not in email.split('@')[1]:
+        return JsonResponse({'ok': False, 'message': 'Invalid email format.'}, status=400)
+
+    # Validate passwords match
+    if password != confirm_password:
         return JsonResponse({'ok': False, 'message': 'Passwords do not match.'}, status=400)
 
-    if payload.get('email') != payload.get('confirmEmail'):
+    # Validate emails match
+    if email != confirm_email:
         return JsonResponse({'ok': False, 'message': 'Emails do not match.'}, status=400)
 
-    if User.objects.filter(username=payload.get('username')).exists():
+    # Check if username exists
+    if User.objects.filter(username=username).exists():
+        ip = get_client_ip(request)
+        log_security_event('registration_duplicate_username', username=username, ip=ip)
         return JsonResponse({'ok': False, 'message': 'Username already exists.'}, status=400)
 
-    if User.objects.filter(email__iexact=payload.get('email')).exists():
+    # Check if email exists
+    if User.objects.filter(email__iexact=email).exists():
+        ip = get_client_ip(request)
+        log_security_event('registration_duplicate_email', email=email, ip=ip)
         return JsonResponse({'ok': False, 'message': 'Email already exists.'}, status=400)
 
-    role = payload.get('role', 'customer')
+    # Validate role
     if role not in dict(Profile.ROLE_CHOICES):
         role = 'customer'
 
-    user = User.objects.create_user(
-        username=payload.get('username'),
-        email=payload.get('email'),
-        password=payload.get('password'),
-        first_name=payload.get('firstName', ''),
-        last_name=payload.get('lastName', ''),
-    )
+    # Validate admin key if registering as admin
+    if role == 'admin' and not is_valid_admin_key(admin_key):
+        ip = get_client_ip(request)
+        log_security_event('invalid_admin_key_attempt', email=email, ip=ip)
+        return JsonResponse({'ok': False, 'message': 'Invalid admin key.'}, status=403)
 
-    Profile.objects.create(
-        user=user,
-        role=role,
-        phone_number=payload.get('phoneNumber', ''),
-        specialization=payload.get('specialization', ''),
-        years_of_experience=int(payload.get('yearsOfExperience', 0) or 0),
-        admin_key=payload.get('adminKey', ''),
-    )
+    # Create temporary user object for password validation
+    temp_user = User(username=username, email=email)
 
+    # Validate password strength using Django's validators
+    try:
+        validate_password(password, user=temp_user)
+    except ValidationError as e:
+        return JsonResponse({'ok': False, 'message': 'Password does not meet requirements: ' + ', '.join(e.messages)}, status=400)
+
+    # Create user
+    try:
+        user = User.objects.create_user(
+            username=username,
+            email=email,
+            password=password,
+            first_name=payload.get('firstName', '').strip(),
+            last_name=payload.get('lastName', '').strip(),
+        )
+    except Exception as e:
+        logger.exception('Failed to create user')
+        return JsonResponse({'ok': False, 'message': 'Failed to create user account.'}, status=500)
+
+    # Create profile
+    try:
+        Profile.objects.create(
+            user=user,
+            role=role,
+            phone_number=phone_number,
+            specialization=payload.get('specialization', '').strip(),
+            years_of_experience=int(payload.get('yearsOfExperience', 0) or 0),
+            admin_key='' if role != 'admin' else 'verified',
+        )
+    except Exception as e:
+        logger.exception('Failed to create profile')
+        user.delete()
+        return JsonResponse({'ok': False, 'message': 'Failed to create user profile.'}, status=500)
+
+    # Send notifications
     try:
         if user.email:
             send_welcome_email(user, [user.email])
 
-        admin_emails = list(User.objects.filter(profile__role='admin').values_list('email', flat=True).distinct().exclude(email=''))
+        admin_emails = list(
+            User.objects.filter(profile__role='admin')
+            .values_list('email', flat=True)
+            .distinct()
+            .exclude(email='')
+        )
         if admin_emails:
             send_admin_alert(
                 'New user registration',
@@ -238,6 +350,8 @@ def register_view(request):
             )
     except Exception:
         logger.exception('Failed to send registration notification emails')
+
+    log_security_event('user_registered', user=user, ip=get_client_ip(request))
 
     return JsonResponse({
         'ok': True,

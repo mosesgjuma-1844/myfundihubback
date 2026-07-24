@@ -23,7 +23,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-@q=0j8-l^nai!*=v3q(pe39#$1sfqu=00(qcim6a!h=9adbi@o')
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    if os.getenv('DEBUG', 'True').lower() in {'1', 'true', 'yes', 'on'}:
+        # Development only - insecure fallback
+        SECRET_KEY = 'django-insecure-dev-only-local-testing-do-not-use-in-production'
+    else:
+        raise ValueError(
+            'SECRET_KEY environment variable is required in production. '
+            'Generate one with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"'
+        )
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True').lower() in {'1', 'true', 'yes', 'on'}
@@ -174,10 +183,130 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Email settings
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'myfundihub1@gmail.com')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL')
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_USE_TLS = True
 EMAIL_PORT = 587
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', 'myfundihub1@gmail.com')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', 'luxvtrldhegwuzxn')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
+
+# Validate email credentials in production
+if not EMAIL_HOST_USER or not EMAIL_HOST_PASSWORD:
+    if not DEBUG:
+        raise ValueError(
+            'EMAIL_HOST_USER and EMAIL_HOST_PASSWORD environment variables are required in production'
+        )
+    # In DEBUG mode, allow empty email config (for testing)
+    EMAIL_HOST_USER = EMAIL_HOST_USER or 'noemail@test.local'
+    EMAIL_HOST_PASSWORD = EMAIL_HOST_PASSWORD or 'test'
+
+if not DEFAULT_FROM_EMAIL:
+    DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+# JWT Configuration
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'VERIFYING_KEY': None,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+}
+
+# Cache Configuration for Rate Limiting
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'OPTIONS': {
+            'MAX_ENTRIES': 10000,
+        }
+    }
+}
+
+# REST Framework Configuration
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
+# Security Settings
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_HTTPONLY = True
+SESSION_COOKIE_HTTPONLY = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_CONTENT_SECURITY_POLICY = {
+    'default-src': ("'self'",),
+}
+
+# Admin Registration Key - must be set in production
+ADMIN_REGISTRATION_KEY = os.getenv('ADMIN_REGISTRATION_KEY')
+if not ADMIN_REGISTRATION_KEY:
+    if not DEBUG:
+        raise ValueError(
+            'ADMIN_REGISTRATION_KEY environment variable is required in production'
+        )
+    # Development only
+    ADMIN_REGISTRATION_KEY = 'dev-admin-key-local-only'
+
+# Paystack Payment Configuration
+PAYSTACK_PUBLIC_KEY = os.getenv('PAYSTACK_PUBLIC_KEY')
+PAYSTACK_SECRET_KEY = os.getenv('PAYSTACK_SECRET_KEY')
+
+if not PAYSTACK_PUBLIC_KEY or not PAYSTACK_SECRET_KEY:
+    if not DEBUG:
+        raise ValueError(
+            'PAYSTACK_PUBLIC_KEY and PAYSTACK_SECRET_KEY environment variables are required in production'
+        )
+    # Development only - test keys (these don't work for real transactions)
+    PAYSTACK_PUBLIC_KEY = 'pk_test_dev_key'
+    PAYSTACK_SECRET_KEY = 'sk_test_dev_key'
+
+# Frontend URL for payment callbacks
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+
+# Logging Configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'security': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+            'level': 'WARNING',
+        },
+    },
+    'loggers': {
+        'api': {
+            'handlers': ['console'],
+            'level': os.getenv('LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        'django.security': {
+            'handlers': ['security'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}
+
