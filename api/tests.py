@@ -223,6 +223,40 @@ class BookingViewTests(TestCase):
         self.assertEqual(booking.customer, customer)
         self.assertEqual(response.json()['booking']['customer']['name'], 'Customer Two')
 
+    def test_logged_in_booking_can_be_found_for_payment_initialization(self):
+        user = User.objects.create_user(
+            username='customer_payment',
+            email='customerpayment@example.com',
+            password='Secret123!',
+            first_name='Customer',
+            last_name='Payment',
+        )
+        Profile.objects.create(user=user, role='customer')
+
+        self.client.force_login(user)
+
+        create_response = self.client.post(
+            '/api/bookings/',
+            data=json.dumps({
+                'serviceType': 'plumbing',
+                'location': 'Test location',
+                'description': 'Need help',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(create_response.status_code, 200)
+        booking = Booking.objects.latest('id')
+        self.assertEqual(booking.customer, user)
+
+        payment_response = self.client.post(
+            '/api/payments/initialize/',
+            data=json.dumps({'booking_id': booking.id}),
+            content_type='application/json',
+        )
+
+        self.assertNotEqual(payment_response.status_code, 404)
+
     def test_technician_only_sees_their_assigned_bookings(self):
         customer = User.objects.create_user(
             username='customer_three',
