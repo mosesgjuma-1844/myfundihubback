@@ -55,10 +55,6 @@ CORS_ALLOWED_ORIGINS = [
     'https://myfundihubback.up.railway.app',
     'https://myfundihubfront-production.up.railway.app',
     'https://myfundihubback-production.up.railway.app',
-    'https://myfundihubfront-production.up.railway.app',
-    'https://myfundihubfront-production.up.railway.app:443',
-    'http://localhost:3000',
-    'http://localhost:5173',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:5173',
 ]
@@ -214,8 +210,9 @@ if not DEFAULT_FROM_EMAIL:
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Longer-lived access tokens for local development and smoother user experience
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=6),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
