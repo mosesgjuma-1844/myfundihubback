@@ -9,6 +9,10 @@ def allow_railway_origin(get_response):
             'https://myfundihubback.up.railway.app',
             'https://myfundihubfront-production.up.railway.app',
             'https://myfundihubback-production.up.railway.app',
+            'http://localhost:3000',
+            'http://localhost:5173',
+            'http://127.0.0.1:3000',
+            'http://127.0.0.1:5173',
         }
         railway_domain = request.META.get('HTTP_HOST', '')
         if railway_domain:

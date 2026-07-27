@@ -55,6 +55,12 @@ CORS_ALLOWED_ORIGINS = [
     'https://myfundihubback.up.railway.app',
     'https://myfundihubfront-production.up.railway.app',
     'https://myfundihubback-production.up.railway.app',
+    'https://myfundihubfront-production.up.railway.app',
+    'https://myfundihubfront-production.up.railway.app:443',
+    'http://localhost:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:5173',
 ]
 if railway_domain:
     CORS_ALLOWED_ORIGINS.append(f'https://{railway_domain}')
