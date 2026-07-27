@@ -12,7 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.authentication import JWTAuthentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.core.cache import cache
 import hmac
 import hashlib
@@ -23,8 +23,7 @@ from .utils.paystack_utils import (
     verify_and_process_payment,
     PaystackError,
 )
-from .utils.rate_limiting import rate_limit
-from .utils.security_logging import log_security_event, get_client_ip
+from .utils.auth_utils import rate_limit, log_security_event, get_client_ip
 
 logger = logging.getLogger(__name__)
 

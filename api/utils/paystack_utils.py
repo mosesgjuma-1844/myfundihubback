@@ -9,7 +9,7 @@ import logging
 from decimal import Decimal
 from django.conf import settings
 from django.urls import reverse
-from .models import Payment, Transaction
+from ..models import Payment, Transaction
 
 logger = logging.getLogger(__name__)
 
