@@ -30,6 +30,7 @@ from .utils.auth_utils import (
     get_client_ip,
     log_security_event,
 )
+from .utils.rbac import get_user_from_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -632,10 +633,16 @@ def bookings_view(request):
         return JsonResponse({'ok': False, 'message': 'Service type and location are required.'}, status=400)
 
     customer = None
+    jwt_user = get_user_from_jwt(request)
     if customer_id:
         customer = User.objects.filter(id=customer_id).first()
-    if customer is None and request.user.is_authenticated:
-        customer = request.user
+    if customer is None:
+        if jwt_user and jwt_user.is_authenticated:
+            customer = jwt_user
+        elif request.user.is_authenticated:
+            customer = request.user
+    if customer is not None:
+        request.user = customer
 
     scheduled_date_value = None
     if payload.get('scheduledDate'):

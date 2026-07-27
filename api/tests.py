@@ -5,6 +5,7 @@ from django.core import mail
 from django.test import TestCase, override_settings
 
 from .models import Booking, Profile
+from .utils.auth_utils import get_tokens_for_user
 
 
 class LoginViewTests(TestCase):
@@ -233,7 +234,7 @@ class BookingViewTests(TestCase):
         )
         Profile.objects.create(user=user, role='customer')
 
-        self.client.force_login(user)
+        access_token = get_tokens_for_user(user)['access']
 
         create_response = self.client.post(
             '/api/bookings/',
@@ -243,6 +244,7 @@ class BookingViewTests(TestCase):
                 'description': 'Need help',
             }),
             content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {access_token}',
         )
 
         self.assertEqual(create_response.status_code, 200)
@@ -253,6 +255,7 @@ class BookingViewTests(TestCase):
             '/api/payments/initialize/',
             data=json.dumps({'booking_id': booking.id}),
             content_type='application/json',
+            HTTP_AUTHORIZATION=f'Bearer {access_token}',
         )
 
         self.assertNotEqual(payment_response.status_code, 404)
