@@ -95,8 +95,8 @@ def mask_email(email):
     return email
 
 
-def log_security_event(event_type, user=None, email=None, username=None, ip=None, details=None):
-    """Log security-related events."""
+def log_security_event(event_type, user=None, email=None, username=None, ip=None, details=None, **context):
+    """Log security-related events with optional structured context."""
     message = f"Security Event: {event_type}"
     if user:
         message += f" | User: {user.username}"
@@ -108,5 +108,8 @@ def log_security_event(event_type, user=None, email=None, username=None, ip=None
         message += f" | IP: {ip}"
     if details:
         message += f" | Details: {details}"
-    
+    for key, value in context.items():
+        if value is not None:
+            message += f" | {key}: {value}"
+
     logger.warning(message)
