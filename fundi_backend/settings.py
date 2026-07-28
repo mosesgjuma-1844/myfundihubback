@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from corsheaders.defaults import default_headers
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -65,22 +66,9 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r'^https?://localhost(:[0-9]+)?$',
     r'^https?://127\.0\.0\.1(:[0-9]+)?$',
 ]
-CORS_ALLOW_HEADERS = [
-    'content-type',
-    'authorization',
-    'x-requested-with',
+CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-access-token',
     'x-auth-token',
-    'accept',
-    'origin',
-    'user-agent',
-    'dnt',
-    'keep-alive',
-    'cache-control',
-    'x-requested-with',
-    'if-modified-since',
-    'x-csrftoken',
-    'x-xsrf-token',
 ]
 CORS_ALLOW_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 CORS_URLS_REGEX = r'^/api/.*$'

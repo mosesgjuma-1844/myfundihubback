@@ -24,10 +24,12 @@ def allow_railway_origin(get_response):
         if request.method == 'OPTIONS':
             response = HttpResponse(status=204)
             if origin in allowed_origins or request.path.startswith('/api/'):
+                request_headers = request.META.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS', '')
                 response['Access-Control-Allow-Origin'] = origin or 'https://myfundihubfront-production.up.railway.app'
                 response['Access-Control-Allow-Credentials'] = 'true'
-                response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Access-Token, X-Auth-Token'
+                response['Access-Control-Allow-Headers'] = request_headers or 'Content-Type, Authorization, X-Requested-With, X-Access-Token, X-Auth-Token'
                 response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+                response['Access-Control-Max-Age'] = '86400'
                 response['Vary'] = 'Origin'
             return response
 
