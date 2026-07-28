@@ -337,6 +337,17 @@ def admin_register_view(request):
     Hidden admin registration endpoint.
     Requires a valid admin key and should only be used from a secret URL.
     """
+    if request.method == 'OPTIONS':
+        response = HttpResponse(status=204)
+        origin = request.META.get('HTTP_ORIGIN', '')
+        if origin:
+            response['Access-Control-Allow-Origin'] = origin
+            response['Access-Control-Allow-Credentials'] = 'true'
+            response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Access-Token, X-Auth-Token'
+            response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+            response['Vary'] = 'Origin'
+        return response
+
     if request.method != 'POST':
         return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
 
@@ -345,14 +356,18 @@ def admin_register_view(request):
     except json.JSONDecodeError:
         return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
 
-    admin_key = payload.get('adminKey', '').strip()
-    if not is_valid_admin_key(admin_key):
-        ip = get_client_ip(request)
-        log_security_event('invalid_admin_key_attempt', email=payload.get('email', '').strip().lower(), ip=ip)
-        return JsonResponse({'ok': False, 'message': 'Invalid admin key.'}, status=403)
+    try:
+        admin_key = payload.get('adminKey', '').strip()
+        if not is_valid_admin_key(admin_key):
+            ip = get_client_ip(request)
+            log_security_event('invalid_admin_key_attempt', email=payload.get('email', '').strip().lower(), ip=ip)
+            return JsonResponse({'ok': False, 'message': 'Invalid admin key.'}, status=403)
 
-    payload['role'] = 'admin'
-    return _create_user_and_profile(request, payload, 'admin')
+        payload['role'] = 'admin'
+        return _create_user_and_profile(request, payload, 'admin')
+    except Exception:
+        logger.exception('Unexpected error during admin registration')
+        return JsonResponse({'ok': False, 'message': 'Internal server error.'}, status=500)
 
 
 def _serialize_user(user):
