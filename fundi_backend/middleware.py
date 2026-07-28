@@ -8,6 +8,7 @@ def allow_railway_origin(get_response):
             'https://myfundihubfront.up.railway.app',
             'https://myfundihubback.up.railway.app',
             'https://myfundihubfront-production.up.railway.app',
+            'https://myfundihub.com/',
             'https://myfundihubback-production.up.railway.app',
             'http://localhost:3000',
             'http://localhost:5173',
