@@ -12,6 +12,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.authentication import BaseAuthentication, SessionAuthentication
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.core.cache import cache
 import hmac
@@ -28,8 +29,57 @@ from .utils.auth_utils import rate_limit, log_security_event, get_client_ip
 logger = logging.getLogger(__name__)
 
 
+class FlexibleJWTAuthentication(BaseAuthentication):
+    """Accept JWTs from the standard Authorization header or common alternate headers."""
+
+    def __init__(self):
+        self.jwt_auth = JWTAuthentication()
+
+    def authenticate(self, request):
+        django_request = getattr(request, '_request', None)
+        if django_request is not None:
+            django_user = getattr(django_request, 'user', None)
+            if django_user is not None and getattr(django_user, 'is_authenticated', False):
+                return django_user, None
+
+        token = None
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if auth_header.startswith('Bearer '):
+            token = auth_header.split(None, 1)[1].strip()
+        else:
+            for header_name in ('HTTP_X_ACCESS_TOKEN', 'HTTP_X_AUTH_TOKEN', 'HTTP_ACCESS_TOKEN', 'HTTP_AUTH_TOKEN'):
+                value = request.META.get(header_name, '')
+                if value:
+                    token = value.strip()
+                    break
+
+        if not token:
+            for key in ('token', 'access_token', 'accessToken', 'jwt'):
+                value = request.GET.get(key)
+                if value:
+                    token = value.strip()
+                    break
+            if not token:
+                payload = request.data if hasattr(request, 'data') else {}
+                if hasattr(payload, 'get'):
+                    value = payload.get('token') or payload.get('access_token') or payload.get('accessToken')
+                    if value:
+                        token = str(value).strip()
+
+        if not token:
+            return None
+
+        try:
+            validated_token = self.jwt_auth.get_validated_token(token)
+            user = self.jwt_auth.get_user(validated_token)
+            return (user, validated_token)
+        except Exception:
+            return None
+
+
+@csrf_exempt
 @api_view(['POST'])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 @rate_limit('payment_initialization')
 def initialize_payment_view(request):
@@ -154,8 +204,9 @@ def initialize_payment_view(request):
         )
 
 
+@csrf_exempt
 @api_view(['GET', 'POST'])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def verify_payment_view(request, reference):
     """
@@ -234,8 +285,9 @@ def verify_payment_view(request, reference):
         )
 
 
+@csrf_exempt
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def payment_status_view(request, payment_id):
     """
@@ -361,8 +413,9 @@ def paystack_webhook_view(request):
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 
+@csrf_exempt
 @api_view(['GET'])
-@authentication_classes([JWTAuthentication])
+@authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def user_payments_view(request):
     """
