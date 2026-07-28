@@ -1,4 +1,6 @@
 import json
+import os
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
@@ -75,6 +77,56 @@ class LoginViewTests(TestCase):
         self.assertEqual(response['Access-Control-Allow-Origin'], 'https://myfundihubfront-production.up.railway.app')
         self.assertEqual(response['Access-Control-Allow-Credentials'], 'true')
         self.assertIn('OPTIONS', response['Access-Control-Allow-Methods'])
+
+    def test_public_register_rejects_admin_role(self):
+        response = self.client.post(
+            '/api/auth/register/',
+            data=json.dumps({
+                'firstName': 'Hidden',
+                'lastName': 'Admin',
+                'email': 'hiddenadmin@example.com',
+                'confirmEmail': 'hiddenadmin@example.com',
+                'phoneNumber': '0712345678',
+                'username': 'hidden_admin',
+                'password': 'Secret123!',
+                'confirmPassword': 'Secret123!',
+                'role': 'admin',
+                'adminKey': 'secret-key',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 403)
+        body = response.json()
+        self.assertFalse(body['ok'])
+        self.assertIn('Admin registration is not allowed here', body['message'])
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    @patch.dict(os.environ, {'ADMIN_REGISTRATION_KEY': 'secret-admin-key'})
+    def test_admin_register_with_valid_admin_key(self):
+        mail.outbox = []
+        response = self.client.post(
+            '/api/auth/admin-register/',
+            data=json.dumps({
+                'firstName': 'Hidden',
+                'lastName': 'Admin',
+                'email': 'hiddenadmin@example.com',
+                'confirmEmail': 'hiddenadmin@example.com',
+                'phoneNumber': '0712345678',
+                'username': 'hidden_admin',
+                'password': 'Secret123!',
+                'confirmPassword': 'Secret123!',
+                'adminKey': 'secret-admin-key',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['role'], 'admin')
+        self.assertTrue(User.objects.filter(username='hidden_admin', email='hiddenadmin@example.com').exists())
+        self.assertTrue(any('Welcome' in message.subject for message in mail.outbox))
 
     def test_login_returns_user_profile_details(self):
         response = self.client.post(

@@ -210,42 +210,7 @@ def reset_password_view(request):
     return JsonResponse({'ok': True, 'message': 'Password reset successfully.'})
 
 
-@csrf_exempt
-@rate_limit('register')
-def register_view(request):
-    """
-    User registration with enhanced security:
-    - Rate limiting
-    - Input validation
-    - Admin key validation
-    - Email verification
-    - Proper password validation
-    """
-    origin = request.META.get('HTTP_ORIGIN', '')
-    allowed_origins = {
-        'https://myfundihubfront.up.railway.app',
-        'https://myfundihubfront-production.up.railway.app',
-        'https://myfundihubback.up.railway.app',
-        'https://myfundihubback-production.up.railway.app',
-    }
-    if request.method == 'OPTIONS':
-        response = HttpResponse(status=204)
-        if origin in allowed_origins:
-            response['Access-Control-Allow-Origin'] = origin
-            response['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
-            response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-            response['Access-Control-Allow-Credentials'] = 'true'
-            response['Vary'] = 'Origin'
-        return response
-
-    if request.method != 'POST':
-        return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
-
-    try:
-        payload = json.loads(request.body)
-    except json.JSONDecodeError:
-        return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
-
+def _create_user_and_profile(request, payload, role='customer'):
     required_fields = ['firstName', 'lastName', 'email', 'phoneNumber', 'username', 'password']
     missing = [field for field in required_fields if not str(payload.get(field, '')).strip()]
 
@@ -258,53 +223,36 @@ def register_view(request):
     confirm_password = payload.get('confirmPassword', '').strip()
     confirm_email = payload.get('confirmEmail', '').strip().lower()
     phone_number = payload.get('phoneNumber', '').strip()
-    role = payload.get('role', 'customer').lower()
-    admin_key = payload.get('adminKey', '').strip()
 
-    # Validate email format
     if '@' not in email or '.' not in email.split('@')[1]:
         return JsonResponse({'ok': False, 'message': 'Invalid email format.'}, status=400)
 
-    # Validate passwords match
     if password != confirm_password:
         return JsonResponse({'ok': False, 'message': 'Passwords do not match.'}, status=400)
 
-    # Validate emails match
     if email != confirm_email:
         return JsonResponse({'ok': False, 'message': 'Emails do not match.'}, status=400)
 
-    # Check if username exists
     if User.objects.filter(username=username).exists():
         ip = get_client_ip(request)
         log_security_event('registration_duplicate_username', username=username, ip=ip)
         return JsonResponse({'ok': False, 'message': 'Username already exists.'}, status=400)
 
-    # Check if email exists
     if User.objects.filter(email__iexact=email).exists():
         ip = get_client_ip(request)
         log_security_event('registration_duplicate_email', email=email, ip=ip)
         return JsonResponse({'ok': False, 'message': 'Email already exists.'}, status=400)
 
-    # Validate role
     if role not in dict(Profile.ROLE_CHOICES):
         role = 'customer'
 
-    # Validate admin key if registering as admin
-    if role == 'admin' and not is_valid_admin_key(admin_key):
-        ip = get_client_ip(request)
-        log_security_event('invalid_admin_key_attempt', email=email, ip=ip)
-        return JsonResponse({'ok': False, 'message': 'Invalid admin key.'}, status=403)
-
-    # Create temporary user object for password validation
     temp_user = User(username=username, email=email)
 
-    # Validate password strength using Django's validators
     try:
         validate_password(password, user=temp_user)
     except ValidationError as e:
         return JsonResponse({'ok': False, 'message': 'Password does not meet requirements: ' + ', '.join(e.messages)}, status=400)
 
-    # Create user
     try:
         user = User.objects.create_user(
             username=username,
@@ -313,11 +261,10 @@ def register_view(request):
             first_name=payload.get('firstName', '').strip(),
             last_name=payload.get('lastName', '').strip(),
         )
-    except Exception as e:
+    except Exception:
         logger.exception('Failed to create user')
         return JsonResponse({'ok': False, 'message': 'Failed to create user account.'}, status=500)
 
-    # Create profile
     try:
         Profile.objects.create(
             user=user,
@@ -327,12 +274,11 @@ def register_view(request):
             years_of_experience=int(payload.get('yearsOfExperience', 0) or 0),
             admin_key='' if role != 'admin' else 'verified',
         )
-    except Exception as e:
+    except Exception:
         logger.exception('Failed to create profile')
         user.delete()
         return JsonResponse({'ok': False, 'message': 'Failed to create user profile.'}, status=500)
 
-    # Send notifications
     try:
         if user.email:
             send_welcome_email(user, [user.email])
@@ -359,6 +305,54 @@ def register_view(request):
         'message': 'Account created successfully.',
         'role': role,
     })
+
+
+@csrf_exempt
+@rate_limit('register')
+def register_view(request):
+    """
+    Public user registration endpoint. Only customer and technician accounts are allowed here.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+
+    role = payload.get('role', 'customer').lower()
+    if role == 'admin':
+        ip = get_client_ip(request)
+        log_security_event('admin_registration_not_allowed_publicly', email=payload.get('email', '').strip().lower(), ip=ip)
+        return JsonResponse({'ok': False, 'message': 'Admin registration is not allowed here.'}, status=403)
+
+    return _create_user_and_profile(request, payload, role)
+
+
+@csrf_exempt
+@rate_limit('register')
+def admin_register_view(request):
+    """
+    Hidden admin registration endpoint.
+    Requires a valid admin key and should only be used from a secret URL.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+
+    try:
+        payload = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+
+    admin_key = payload.get('adminKey', '').strip()
+    if not is_valid_admin_key(admin_key):
+        ip = get_client_ip(request)
+        log_security_event('invalid_admin_key_attempt', email=payload.get('email', '').strip().lower(), ip=ip)
+        return JsonResponse({'ok': False, 'message': 'Invalid admin key.'}, status=403)
+
+    payload['role'] = 'admin'
+    return _create_user_and_profile(request, payload, 'admin')
 
 
 def _serialize_user(user):

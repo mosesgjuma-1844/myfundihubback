@@ -4,6 +4,7 @@ from .views import (
     forgot_password_view,
     login_view,
     register_view,
+    admin_register_view,
     reset_password_view,
     user_view,
     menu_view,
@@ -25,6 +26,7 @@ from .payment_views import (
 urlpatterns = [
     path('auth/login/', login_view, name='login'),
     path('auth/register/', register_view, name='register'),
+    path('auth/admin-register/', admin_register_view, name='admin-register'),
     path('auth/forgot-password/', forgot_password_view, name='forgot-password'),
     path('auth/verify-reset-code/', verify_reset_code_view, name='verify-reset-code'),
     path('auth/reset-password/', reset_password_view, name='reset-password'),
