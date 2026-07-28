@@ -51,19 +51,21 @@ if railway_domain:
     ALLOWED_HOSTS.append(railway_domain)
 
 CORS_ALLOWED_ORIGINS = [
-    'https://myfundihubfront.up.railway.app',
-    'https://myfundihubback.up.railway.app',
     'https://myfundihubfront-production.up.railway.app',
     'https://myfundihubback-production.up.railway.app',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:5173',
 ]
 if railway_domain:
     CORS_ALLOWED_ORIGINS.append(f'https://{railway_domain}')
     CORS_ALLOWED_ORIGINS.append(f'http://{railway_domain}')
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://.*\.up\.railway\.app$',
+    r'^https?://localhost(:[0-9]+)?$',
+    r'^https?://127\.0\.0\.1(:[0-9]+)?$',
+]
 CORS_ALLOW_HEADERS = ['*']
 CORS_ALLOW_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+CORS_URLS_REGEX = r'^/api/.*$'
 
 
 # Application definition
@@ -267,16 +269,12 @@ PAYSTACK_PUBLIC_KEY = os.getenv('PAYSTACK_PUBLIC_KEY')
 PAYSTACK_SECRET_KEY = os.getenv('PAYSTACK_SECRET_KEY')
 
 if not PAYSTACK_PUBLIC_KEY or not PAYSTACK_SECRET_KEY:
-    if not DEBUG:
-        raise ValueError(
-            'PAYSTACK_PUBLIC_KEY and PAYSTACK_SECRET_KEY environment variables are required in production'
-        )
-    # Development only - test keys (these don't work for real transactions)
-    PAYSTACK_PUBLIC_KEY = 'pk_test_dev_key'
-    PAYSTACK_SECRET_KEY = 'sk_test_dev_key'
+    raise ValueError(
+        'PAYSTACK_PUBLIC_KEY and PAYSTACK_SECRET_KEY environment variables are required'
+    )
 
 # Frontend URL for payment callbacks
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://myfundihubfront-production.up.railway.app')
 
 # Logging Configuration
 LOGGING = {
