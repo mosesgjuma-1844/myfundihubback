@@ -21,14 +21,6 @@ def allow_railway_origin(get_response):
             if railway_domain.startswith('myfundihubback'):
                 allowed_origins.add(f'https://{railway_domain}')
 
-        response = get_response(request)
-        if origin in allowed_origins or request.path.startswith('/api/'):
-            response['Access-Control-Allow-Origin'] = origin or 'https://myfundihubfront-production.up.railway.app'
-            response['Vary'] = 'Origin'
-            response['Access-Control-Allow-Credentials'] = 'true'
-            response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-            response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
-
         if request.method == 'OPTIONS':
             response = HttpResponse(status=204)
             if origin in allowed_origins or request.path.startswith('/api/'):
@@ -37,6 +29,16 @@ def allow_railway_origin(get_response):
                 response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
                 response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
                 response['Vary'] = 'Origin'
+            return response
+
+        response = get_response(request)
+        if origin in allowed_origins or request.path.startswith('/api/'):
+            response['Access-Control-Allow-Origin'] = origin or 'https://myfundihubfront-production.up.railway.app'
+            response['Vary'] = 'Origin'
+            response['Access-Control-Allow-Credentials'] = 'true'
+            response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+            response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+
         return response
 
     return middleware
