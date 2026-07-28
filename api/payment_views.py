@@ -46,6 +46,8 @@ class FlexibleJWTAuthentication(BaseAuthentication):
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
         if auth_header.startswith('Bearer '):
             token = auth_header.split(None, 1)[1].strip()
+        elif auth_header:
+            token = auth_header.strip()
         else:
             for header_name in ('HTTP_X_ACCESS_TOKEN', 'HTTP_X_AUTH_TOKEN', 'HTTP_ACCESS_TOKEN', 'HTTP_AUTH_TOKEN'):
                 value = request.META.get(header_name, '')
@@ -77,10 +79,33 @@ class FlexibleJWTAuthentication(BaseAuthentication):
             return None
 
 
+def get_authenticated_user(request):
+    if getattr(request, 'user', None) and getattr(request.user, 'is_authenticated', False):
+        return request.user
+
+    django_user = getattr(request._request, 'user', None) if hasattr(request, '_request') else None
+    if django_user and getattr(django_user, 'is_authenticated', False):
+        request.user = django_user
+        return django_user
+
+    for auth in (FlexibleJWTAuthentication(), SessionAuthentication()):
+        try:
+            user_auth_tuple = auth.authenticate(request)
+            if user_auth_tuple is not None:
+                user = user_auth_tuple[0]
+                if user and getattr(user, 'is_authenticated', False):
+                    request.user = user
+                    return user
+        except Exception:
+            continue
+
+    return None
+
+
 @csrf_exempt
 @api_view(['POST'])
 @authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 @rate_limit('payment_initialization')
 def initialize_payment_view(request):
     """
@@ -103,7 +128,9 @@ def initialize_payment_view(request):
     }
     """
     try:
-        user = request.user
+        user = get_authenticated_user(request)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return JsonResponse({'ok': False, 'message': 'Authentication required.'}, status=401)
         payload = request.data
 
         # Validate input
@@ -207,7 +234,7 @@ def initialize_payment_view(request):
 @csrf_exempt
 @api_view(['GET', 'POST'])
 @authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def verify_payment_view(request, reference):
     """
     Verify a payment transaction.
@@ -222,7 +249,9 @@ def verify_payment_view(request, reference):
     }
     """
     try:
-        user = request.user
+        user = get_authenticated_user(request)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return JsonResponse({'ok': False, 'message': 'Authentication required.'}, status=401)
 
         # Verify payment
         payment, success, message = verify_and_process_payment(reference)
@@ -288,7 +317,7 @@ def verify_payment_view(request, reference):
 @csrf_exempt
 @api_view(['GET'])
 @authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def payment_status_view(request, payment_id):
     """
     Get payment status.
@@ -305,7 +334,9 @@ def payment_status_view(request, payment_id):
     }
     """
     try:
-        user = request.user
+        user = get_authenticated_user(request)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return JsonResponse({'ok': False, 'message': 'Authentication required.'}, status=401)
 
         # Get payment
         try:
@@ -416,7 +447,7 @@ def paystack_webhook_view(request):
 @csrf_exempt
 @api_view(['GET'])
 @authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
-@permission_classes([IsAuthenticated])
+@permission_classes([])
 def user_payments_view(request):
     """
     Get all payments for the current user.
