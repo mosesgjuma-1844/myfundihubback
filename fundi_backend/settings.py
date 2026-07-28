@@ -65,7 +65,23 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     r'^https?://localhost(:[0-9]+)?$',
     r'^https?://127\.0\.0\.1(:[0-9]+)?$',
 ]
-CORS_ALLOW_HEADERS = ['*']
+CORS_ALLOW_HEADERS = [
+    'content-type',
+    'authorization',
+    'x-requested-with',
+    'x-access-token',
+    'x-auth-token',
+    'accept',
+    'origin',
+    'user-agent',
+    'dnt',
+    'keep-alive',
+    'cache-control',
+    'x-requested-with',
+    'if-modified-since',
+    'x-csrftoken',
+    'x-xsrf-token',
+]
 CORS_ALLOW_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 CORS_URLS_REGEX = r'^/api/.*$'
 
