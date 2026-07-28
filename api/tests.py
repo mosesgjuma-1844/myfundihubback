@@ -130,6 +130,18 @@ class BookingViewTests(TestCase):
         self.assertEqual(stats['Active Jobs'], '2')
         self.assertEqual(stats['Revenue'], 'KSh 6400.00')
 
+    def test_booking_options_returns_cors_headers_for_allowed_origin(self):
+        response = self.client.options(
+            '/api/bookings/',
+            HTTP_ORIGIN='https://myfundihubfront-production.up.railway.app',
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(response['Access-Control-Allow-Origin'], 'https://myfundihubfront-production.up.railway.app')
+        self.assertEqual(response['Access-Control-Allow-Credentials'], 'true')
+        self.assertIn('OPTIONS', response['Access-Control-Allow-Methods'])
+
     def test_booking_creation_accepts_string_dates_and_times(self):
         response = self.client.post(
             '/api/bookings/',

@@ -581,6 +581,19 @@ def technician_dashboard_view(request):
 
 @csrf_exempt
 def bookings_view(request):
+    if request.method == 'OPTIONS':
+        response = JsonResponse({}, status=204)
+        origin = request.META.get('HTTP_ORIGIN', '')
+        if origin:
+            response['Access-Control-Allow-Origin'] = origin
+            response['Vary'] = 'Origin'
+        else:
+            response['Access-Control-Allow-Origin'] = 'https://myfundihubfront-production.up.railway.app'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+        return response
+
     if request.method == 'GET':
         bookings = Booking.objects.order_by('-created_at').all()
         status = request.GET.get('status')
