@@ -4,11 +4,13 @@ Paystack Payment Integration Utilities
 Handles all Paystack API interactions for payment processing.
 """
 
-import requests
 import logging
 from decimal import Decimal
+
+import requests
 from django.conf import settings
 from django.urls import reverse
+
 from ..models import Payment, Transaction
 
 logger = logging.getLogger(__name__)
@@ -32,7 +34,20 @@ class PaystackClient:
         """Initialize Paystack client with API key."""
         self.api_key = settings.PAYSTACK_SECRET_KEY
         self.public_key = settings.PAYSTACK_PUBLIC_KEY
-        
+        placeholder_markers = (
+            'dummy',
+            'placeholder',
+            'replace',
+            'your_public_key_here',
+            'your_secret_key_here',
+            'your_key_here',
+            'example',
+        )
+        self.use_mock = getattr(settings, 'PAYSTACK_USE_MOCK', False) or (
+            bool(self.api_key and any(marker in self.api_key.lower() for marker in placeholder_markers)) or
+            bool(self.public_key and any(marker in self.public_key.lower() for marker in placeholder_markers))
+        )
+
         if not self.api_key or not self.public_key:
             raise PaystackError('Paystack API keys not configured in settings')
 
@@ -60,6 +75,33 @@ class PaystackClient:
         try:
             user = payment_obj.user
             booking = payment_obj.booking
+
+            if self.use_mock:
+                payment_obj.paystack_reference = f"mock-{payment_obj.id}-{booking.id}"
+                payment_obj.paystack_access_code = f"mock-access-{payment_obj.id}"
+                payment_obj.paystack_authorization_url = 'https://checkout.paystack.com/mock-paystack'
+                payment_obj.status = 'processing'
+                payment_obj.save(update_fields=[
+                    'paystack_reference', 'paystack_access_code', 
+                    'paystack_authorization_url', 'status'
+                ])
+
+                Transaction.objects.create(
+                    payment=payment_obj,
+                    transaction_type='payment',
+                    amount=payment_obj.amount,
+                    paystack_reference=payment_obj.paystack_reference,
+                    status='pending',
+                    response={'status': True, 'message': 'mock'},
+                    notes='Mock payment initialization'
+                )
+
+                return {
+                    'success': True,
+                    'authorization_url': payment_obj.paystack_authorization_url,
+                    'access_code': payment_obj.paystack_access_code,
+                    'reference': payment_obj.paystack_reference,
+                }
 
             # Prepare callback URL
             callback_url = f"{settings.FRONTEND_URL}/payment/verify/{payment_obj.id}"

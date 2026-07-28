@@ -4,8 +4,9 @@ from django.contrib.auth.models import User
 from django.core import mail
 from django.test import TestCase, override_settings
 
-from .models import Booking, Profile
+from .models import Booking, Payment, Profile
 from .utils.auth_utils import get_tokens_for_user
+from .utils.paystack_utils import PaystackClient
 
 
 class LoginViewTests(TestCase):
@@ -92,6 +93,47 @@ class LoginViewTests(TestCase):
         self.assertEqual(body['user']['firstName'], 'Jane')
         self.assertEqual(body['user']['lastName'], 'Wanjiku')
         self.assertEqual(body['user']['username'], 'jane_wanjiku')
+
+
+class PaystackClientTests(TestCase):
+    @override_settings(
+        PAYSTACK_PUBLIC_KEY='pk_test_dummy',
+        PAYSTACK_SECRET_KEY='sk_test_dummy',
+        PAYSTACK_USE_MOCK=True,
+        DEBUG=True,
+    )
+    def test_placeholder_keys_enable_mock_payment_initialization(self):
+        user = User.objects.create_user(
+            username='mock_paystack_user',
+            email='mockpaystack@example.com',
+            password='Secret123!',
+            first_name='Mock',
+            last_name='Paystack',
+        )
+        Profile.objects.create(user=user, role='customer')
+        booking = Booking.objects.create(
+            customer=user,
+            service_type='plumbing',
+            location='Test location',
+            description='Need help',
+            estimated_cost=1000,
+            callout_fee=1000,
+        )
+        payment = Payment.objects.create(
+            booking=booking,
+            user=user,
+            amount=1000,
+            payment_method='paystack',
+            payment_type='callout_fee',
+        )
+
+        client = PaystackClient()
+        self.assertTrue(client.use_mock)
+
+        result = client.initialize_payment(payment)
+        self.assertTrue(result['success'])
+        self.assertIn('mock-paystack', result['authorization_url'])
+        self.assertEqual(payment.status, 'processing')
 
 
 class BookingViewTests(TestCase):
