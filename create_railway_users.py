@@ -24,13 +24,7 @@ def create_or_update_user(username: str, email: str, password: str, is_staff: bo
 
 def main():
     users = [
-        {
-            'username': 'mosesgjuma',
-            'email': 'mosesgjuma@gmail.com',
-            'password': 'Hub@123456',
-            'is_staff': False,
-            'is_superuser': False,
-        },
+        
         {
             'username': 'admin',
             'email': 'mosesgjuma@gmail.com',
