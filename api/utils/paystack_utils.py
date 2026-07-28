@@ -32,8 +32,8 @@ class PaystackClient:
 
     def __init__(self):
         """Initialize Paystack client with API key."""
-        self.api_key = settings.PAYSTACK_SECRET_KEY
-        self.public_key = settings.PAYSTACK_PUBLIC_KEY
+        self.api_key = settings.PAYSTACK_SECRET_KEY.strip()
+        self.public_key = settings.PAYSTACK_PUBLIC_KEY.strip()
         placeholder_markers = (
             'dummy',
             'placeholder',

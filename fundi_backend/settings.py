@@ -267,8 +267,8 @@ if not ADMIN_REGISTRATION_KEY:
     ADMIN_REGISTRATION_KEY = 'dev-admin-key-local-only'
 
 # Paystack Payment Configuration
-PAYSTACK_PUBLIC_KEY = os.getenv('PAYSTACK_PUBLIC_KEY')
-PAYSTACK_SECRET_KEY = os.getenv('PAYSTACK_SECRET_KEY')
+PAYSTACK_PUBLIC_KEY = os.getenv('PAYSTACK_PUBLIC_KEY', '').strip()
+PAYSTACK_SECRET_KEY = os.getenv('PAYSTACK_SECRET_KEY', '').strip()
 
 if not PAYSTACK_PUBLIC_KEY or not PAYSTACK_SECRET_KEY:
     raise ValueError(
