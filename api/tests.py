@@ -142,6 +142,46 @@ class BookingViewTests(TestCase):
         self.assertEqual(response['Access-Control-Allow-Credentials'], 'true')
         self.assertIn('OPTIONS', response['Access-Control-Allow-Methods'])
 
+    def test_duplicate_booking_returns_existing_booking_instead_of_conflict(self):
+        user = User.objects.create_user(
+            username='customer_duplicate',
+            email='customerduplicate@example.com',
+            password='Secret123!',
+            first_name='Customer',
+            last_name='Duplicate',
+        )
+        Profile.objects.create(user=user, role='customer')
+        self.client.force_login(user)
+
+        first_response = self.client.post(
+            '/api/bookings/',
+            data=json.dumps({
+                'serviceType': 'installation',
+                'location': 'Test location',
+                'description': 'Need help',
+                'scheduledDate': '2026-07-15',
+                'scheduledTime': '10:00',
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(first_response.status_code, 200)
+
+        second_response = self.client.post(
+            '/api/bookings/',
+            data=json.dumps({
+                'serviceType': 'installation',
+                'location': 'Test location',
+                'description': 'Need help',
+                'scheduledDate': '2026-07-15',
+                'scheduledTime': '10:00',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(second_response.status_code, 200)
+        self.assertTrue(second_response.json()['duplicate'])
+        self.assertEqual(Booking.objects.count(), 1)
+
     def test_booking_creation_accepts_string_dates_and_times(self):
         response = self.client.post(
             '/api/bookings/',

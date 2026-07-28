@@ -673,7 +673,7 @@ def bookings_view(request):
 
     if customer is not None:
         duplicate_window = timezone.now() - timedelta(minutes=5)
-        duplicate_exists = Booking.objects.filter(
+        existing_duplicate = Booking.objects.filter(
             customer=customer,
             service_type__iexact=service_type,
             location__iexact=location,
@@ -684,12 +684,14 @@ def bookings_view(request):
             scheduled_date=scheduled_date_value,
             scheduled_time=scheduled_time_value,
             created_at__gte=duplicate_window,
-        ).exclude(status='completed').exclude(status='cancelled').exists()
-        if duplicate_exists:
-            return JsonResponse(
-                {'ok': False, 'message': 'A similar booking already exists. Please check your bookings before submitting again.'},
-                status=409,
-            )
+        ).exclude(status='completed').exclude(status='cancelled').order_by('-created_at').first()
+        if existing_duplicate is not None:
+            return JsonResponse({
+                'ok': True,
+                'message': 'A similar booking already exists. Returning the existing booking.',
+                'duplicate': True,
+                'booking': _serialize_booking(existing_duplicate),
+            }, status=200)
 
     booking = Booking.objects.create(
         customer=customer,
