@@ -454,6 +454,17 @@ def user_view(request):
 
     return JsonResponse({'ok': True, 'user': _serialize_user(user)})
 
+
+@csrf_exempt
+def admin_users_view(request):
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+
+    users = User.objects.select_related('profile').all().order_by('-id')
+    payload = [_serialize_user(user) for user in users]
+    return JsonResponse({'ok': True, 'users': payload})
+
+
 @csrf_exempt
 def technicians_view(request):
     if request.method != 'GET':

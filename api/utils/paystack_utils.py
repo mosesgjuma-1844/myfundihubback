@@ -103,13 +103,14 @@ class PaystackClient:
                     'reference': payment_obj.paystack_reference,
                 }
 
-            # Prepare callback URL
-            callback_url = f"{settings.FRONTEND_URL}/payment/verify/{payment_obj.id}"
+            # Prepare reference and callback URL (backend handles verification)
+            reference = f"FUNDI-{payment_obj.id}-{payment_obj.booking.id}"
+            callback_url = f"{settings.BACKEND_URL}/api/payments/callback/{reference}/"
 
             payload = {
                 'email': user.email,
                 'amount': int(float(payment_obj.amount) * 100),  # Convert to kobo
-                'reference': f"FUNDI-{payment_obj.id}-{payment_obj.booking.id}",
+                'reference': reference,
                 'callback_url': callback_url,
                 'metadata': {
                     'user_id': user.id,

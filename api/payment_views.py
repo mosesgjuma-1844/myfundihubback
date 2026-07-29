@@ -7,6 +7,7 @@ Handles payment initialization, verification, and webhooks.
 import json
 import logging
 from django.http import JsonResponse
+from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 from django.views.decorators.csrf import csrf_exempt
 from django.conf import settings
@@ -312,6 +313,33 @@ def verify_payment_view(request, reference):
             {'ok': False, 'message': 'Payment verification failed'},
             status=500
         )
+
+
+@csrf_exempt
+@api_view(['GET'])
+@permission_classes([])
+def paystack_callback_view(request, reference):
+    """
+    Public callback endpoint for Paystack redirects.
+
+    This endpoint verifies the payment using the reference and then redirects
+    the user back to the frontend with the original query string preserved.
+    """
+    try:
+        # Attempt to verify and process the payment
+        payment, success, message = verify_and_process_payment(reference)
+    except Exception as e:
+        qs = request.META.get('QUERY_STRING', '')
+        redirect_url = f"{settings.FRONTEND_URL}/payment/verify/0"
+        if qs:
+            redirect_url = f"{redirect_url}?{qs}"
+        return redirect(redirect_url)
+
+    qs = request.META.get('QUERY_STRING', '')
+    redirect_url = f"{settings.FRONTEND_URL}/payment/verify/{payment.id}"
+    if qs:
+        redirect_url = f"{redirect_url}?{qs}"
+    return redirect(redirect_url)
 
 
 @csrf_exempt

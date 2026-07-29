@@ -7,6 +7,7 @@ from .views import (
     admin_register_view,
     reset_password_view,
     user_view,
+    admin_users_view,
     menu_view,
     customer_dashboard_view,
     admin_dashboard_view,
@@ -18,6 +19,7 @@ from .views import (
 from .payment_views import (
     initialize_payment_view,
     verify_payment_view,
+    paystack_callback_view,
     payment_status_view,
     paystack_webhook_view,
     user_payments_view,
@@ -34,6 +36,7 @@ urlpatterns = [
     path('bookings/assign/', assign_booking_view, name='assign-booking'),
     path('technicians/', technicians_view, name='technicians'),
     path('user/', user_view, name='user'),
+    path('admin/users/', admin_users_view, name='admin-users'),
     path('menu/', menu_view, name='menu'),
     path('dashboard/customer/', customer_dashboard_view, name='customer-dashboard'),
     path('dashboard/admin/', admin_dashboard_view, name='admin-dashboard'),
@@ -42,6 +45,7 @@ urlpatterns = [
     # Payment endpoints
     path('payments/initialize/', initialize_payment_view, name='initialize-payment'),
     path('payments/verify/<str:reference>/', verify_payment_view, name='verify-payment'),
+    path('payments/callback/<str:reference>/', paystack_callback_view, name='paystack-callback'),
     path('payments/<int:payment_id>/status/', payment_status_view, name='payment-status'),
     path('payments/list/', user_payments_view, name='user-payments'),
     path('payments/webhook/paystack/', paystack_webhook_view, name='paystack-webhook'),
