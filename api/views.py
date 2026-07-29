@@ -601,19 +601,26 @@ def technician_dashboard_view(request):
 
     return JsonResponse({'ok': True, 'stats': stats, 'quickActions': quick_actions})
 
+def _add_cors_headers(response, request):
+    origin = request.META.get('HTTP_ORIGIN', '')
+    allowed_origins = {
+        'https://myfundihub.com',
+        'https://www.myfundihub.com',
+        'https://api.myfundihub.com',
+    }
+    if origin in allowed_origins or request.path.startswith('/api/'):
+        response['Access-Control-Allow-Origin'] = origin or 'https://myfundihub.com'
+        response['Vary'] = 'Origin'
+        response['Access-Control-Allow-Credentials'] = 'true'
+        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Access-Token, X-Auth-Token'
+        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+
+
 @csrf_exempt
 def bookings_view(request):
     if request.method == 'OPTIONS':
         response = JsonResponse({}, status=204)
-        origin = request.META.get('HTTP_ORIGIN', '')
-        if origin:
-            response['Access-Control-Allow-Origin'] = origin
-            response['Vary'] = 'Origin'
-        else:
-            response['Access-Control-Allow-Origin'] = 'https://myfundihubfront-production.up.railway.app'
-        response['Access-Control-Allow-Credentials'] = 'true'
-        response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
-        response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+        _add_cors_headers(response, request)
         return response
 
     if request.method == 'GET':
@@ -649,106 +656,124 @@ def bookings_view(request):
             )
 
         payload = [_serialize_booking(booking) for booking in bookings]
-        return JsonResponse({'ok': True, 'bookings': payload})
+        response = JsonResponse({'ok': True, 'bookings': payload})
+        _add_cors_headers(response, request)
+        return response
 
     if request.method != 'POST':
-        return JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+        response = JsonResponse({'ok': False, 'message': 'Method not allowed.'}, status=405)
+        _add_cors_headers(response, request)
+        return response
 
     try:
         payload = json.loads(request.body)
     except json.JSONDecodeError:
-        return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+        response = JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
 
-    service_type = payload.get('serviceType', '').strip()
-    location = payload.get('location', '').strip()
-    description = payload.get('description', '').strip()
-    customer_id = payload.get('customerId')
+    try:
+        service_type = payload.get('serviceType', '').strip()
+        location = payload.get('location', '').strip()
+        description = payload.get('description', '').strip()
+        customer_id = payload.get('customerId')
 
-    if not service_type or not location:
-        return JsonResponse({'ok': False, 'message': 'Service type and location are required.'}, status=400)
+        if not service_type or not location:
+            response = JsonResponse({'ok': False, 'message': 'Service type and location are required.'}, status=400)
+            _add_cors_headers(response, request)
+            return response
 
-    customer = None
-    jwt_user = get_user_from_jwt(request)
-    if customer_id:
-        customer = User.objects.filter(id=customer_id).first()
-    if customer is None:
-        if jwt_user and jwt_user.is_authenticated:
-            customer = jwt_user
-        elif request.user.is_authenticated:
-            customer = request.user
-    if customer is not None:
-        request.user = customer
+        customer = None
+        jwt_user = get_user_from_jwt(request)
+        if customer_id:
+            customer = User.objects.filter(id=customer_id).first()
+        if customer is None:
+            if jwt_user and jwt_user.is_authenticated:
+                customer = jwt_user
+            elif request.user.is_authenticated:
+                customer = request.user
+        if customer is not None:
+            request.user = customer
 
-    scheduled_date_value = None
-    if payload.get('scheduledDate'):
-        try:
-            scheduled_date_value = datetime.strptime(payload.get('scheduledDate'), '%Y-%m-%d').date()
-        except ValueError:
-            scheduled_date_value = None
+        scheduled_date_value = None
+        if payload.get('scheduledDate'):
+            try:
+                scheduled_date_value = datetime.strptime(payload.get('scheduledDate'), '%Y-%m-%d').date()
+            except ValueError:
+                scheduled_date_value = None
 
-    scheduled_time_value = None
-    if payload.get('scheduledTime'):
-        try:
-            scheduled_time_value = datetime.strptime(payload.get('scheduledTime'), '%H:%M').time()
-        except ValueError:
-            scheduled_time_value = None
+        scheduled_time_value = None
+        if payload.get('scheduledTime'):
+            try:
+                scheduled_time_value = datetime.strptime(payload.get('scheduledTime'), '%H:%M').time()
+            except ValueError:
+                scheduled_time_value = None
 
-    if customer is not None:
-        duplicate_window = timezone.now() - timedelta(minutes=5)
-        existing_duplicate = Booking.objects.filter(
+        if customer is not None:
+            duplicate_window = timezone.now() - timedelta(minutes=5)
+            existing_duplicate = Booking.objects.filter(
+                customer=customer,
+                service_type__iexact=service_type,
+                location__iexact=location,
+                county__iexact=(payload.get('county', '') or '').strip(),
+                town_or_estate__iexact=(payload.get('townOrEstate', '') or '').strip(),
+                landmark__iexact=(payload.get('landmark', '') or '').strip(),
+                description__iexact=description,
+                scheduled_date=scheduled_date_value,
+                scheduled_time=scheduled_time_value,
+                created_at__gte=duplicate_window,
+            ).exclude(status='completed').exclude(status='cancelled').order_by('-created_at').first()
+            if existing_duplicate is not None:
+                response = JsonResponse({
+                    'ok': True,
+                    'message': 'A similar booking already exists. Returning the existing booking.',
+                    'duplicate': True,
+                    'booking': _serialize_booking(existing_duplicate),
+                }, status=200)
+                _add_cors_headers(response, request)
+                return response
+
+        booking = Booking.objects.create(
             customer=customer,
-            service_type__iexact=service_type,
-            location__iexact=location,
-            county__iexact=(payload.get('county', '') or '').strip(),
-            town_or_estate__iexact=(payload.get('townOrEstate', '') or '').strip(),
-            landmark__iexact=(payload.get('landmark', '') or '').strip(),
-            description__iexact=description,
+            service_type=service_type,
+            location=location,
+            county=payload.get('county', '').strip(),
+            town_or_estate=payload.get('townOrEstate', '').strip(),
+            landmark=payload.get('landmark', '').strip(),
+            latitude=payload.get('latitude') or None,
+            longitude=payload.get('longitude') or None,
+            description=description,
             scheduled_date=scheduled_date_value,
             scheduled_time=scheduled_time_value,
-            created_at__gte=duplicate_window,
-        ).exclude(status='completed').exclude(status='cancelled').order_by('-created_at').first()
-        if existing_duplicate is not None:
-            return JsonResponse({
-                'ok': True,
-                'message': 'A similar booking already exists. Returning the existing booking.',
-                'duplicate': True,
-                'booking': _serialize_booking(existing_duplicate),
-            }, status=200)
+            service_window=payload.get('serviceWindow', 'scheduled'),
+            estimated_cost=payload.get('estimatedCost', 0) or 0,
+        )
+        try:
+            if booking.customer and booking.customer.email:
+                send_booking_created(booking, [booking.customer.email])
 
-    booking = Booking.objects.create(
-        customer=customer,
-        service_type=service_type,
-        location=location,
-        county=payload.get('county', '').strip(),
-        town_or_estate=payload.get('townOrEstate', '').strip(),
-        landmark=payload.get('landmark', '').strip(),
-        latitude=payload.get('latitude') or None,
-        longitude=payload.get('longitude') or None,
-        description=description,
-        scheduled_date=scheduled_date_value,
-        scheduled_time=scheduled_time_value,
-        service_window=payload.get('serviceWindow', 'scheduled'),
-        estimated_cost=payload.get('estimatedCost', 0) or 0,
-    )
-    try:
-        if booking.customer and booking.customer.email:
-            send_booking_created(booking, [booking.customer.email])
+            admin_emails = list(User.objects.filter(profile__role='admin').values_list('email', flat=True).distinct().exclude(email=''))
+            if admin_emails:
+                send_admin_alert(
+                    'New booking created',
+                    f"A new {booking.get_service_type_display()} booking was created for {booking.location}.",
+                    admin_emails,
+                )
+        except Exception:
+            logger.exception('Failed to send booking notification emails')
 
-        admin_emails = list(User.objects.filter(profile__role='admin').values_list('email', flat=True).distinct().exclude(email=''))
-        if admin_emails:
-            send_admin_alert(
-                'New booking created',
-                f"A new {booking.get_service_type_display()} booking was created for {booking.location}.",
-                admin_emails,
-            )
+        response = JsonResponse({
+            'ok': True,
+            'message': 'Booking created successfully.',
+            'booking': _serialize_booking(booking),
+        })
+        _add_cors_headers(response, request)
+        return response
     except Exception:
-        logger.exception('Failed to send booking notification emails')
-
-    return JsonResponse({
-        'ok': True,
-        'message': 'Booking created successfully.',
-        'booking': _serialize_booking(booking),
-    })
+        logger.exception('Failed to create booking')
+        response = JsonResponse({'ok': False, 'message': 'Internal server error.'}, status=500)
+        _add_cors_headers(response, request)
+        return response
 
 
 @csrf_exempt

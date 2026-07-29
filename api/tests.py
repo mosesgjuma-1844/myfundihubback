@@ -287,6 +287,23 @@ class BookingViewTests(TestCase):
         self.assertEqual(response['Access-Control-Allow-Credentials'], 'true')
         self.assertIn('OPTIONS', response['Access-Control-Allow-Methods'])
 
+    @patch('api.views.Booking.objects.create', side_effect=RuntimeError('boom'))
+    def test_booking_creation_returns_cors_headers_when_internal_error_occurs(self, _mock_create):
+        response = self.client.post(
+            '/api/bookings/',
+            data=json.dumps({
+                'serviceType': 'installation',
+                'location': 'Test location',
+                'description': 'Need help',
+            }),
+            content_type='application/json',
+            HTTP_ORIGIN='https://myfundihub.com',
+        )
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response['Access-Control-Allow-Origin'], 'https://myfundihub.com')
+        self.assertEqual(response['Access-Control-Allow-Credentials'], 'true')
+
     def test_duplicate_booking_returns_existing_booking_instead_of_conflict(self):
         user = User.objects.create_user(
             username='customer_duplicate',

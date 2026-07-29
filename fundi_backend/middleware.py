@@ -1,4 +1,8 @@
-from django.http import HttpResponse
+import logging
+
+from django.http import HttpResponse, JsonResponse
+
+logger = logging.getLogger(__name__)
 
 
 def allow_railway_origin(get_response):
@@ -21,7 +25,7 @@ def allow_railway_origin(get_response):
             response = HttpResponse(status=204)
             if origin in allowed_origins or request.path.startswith('/api/'):
                 request_headers = request.META.get('HTTP_ACCESS_CONTROL_REQUEST_HEADERS', '')
-                response['Access-Control-Allow-Origin'] = origin or 'https://myfundihubfront-production.up.railway.app'
+                response['Access-Control-Allow-Origin'] = origin or 'https://myfundihub.com'
                 response['Access-Control-Allow-Credentials'] = 'true'
                 response['Access-Control-Allow-Headers'] = request_headers or 'Content-Type, Authorization, X-Requested-With, X-Access-Token, X-Auth-Token'
                 response['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
@@ -29,9 +33,14 @@ def allow_railway_origin(get_response):
                 response['Vary'] = 'Origin'
             return response
 
-        response = get_response(request)
+        try:
+            response = get_response(request)
+        except Exception:
+            logger.exception('Unhandled exception while processing %s %s', request.method, request.path)
+            response = JsonResponse({'ok': False, 'message': 'Internal server error.'}, status=500)
+
         if origin in allowed_origins or request.path.startswith('/api/'):
-            response['Access-Control-Allow-Origin'] = origin or 'https://myfundihubfront-production.up.railway.app'
+            response['Access-Control-Allow-Origin'] = origin or 'https://myfundihub.com'
             response['Vary'] = 'Origin'
             response['Access-Control-Allow-Credentials'] = 'true'
             response['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With, X-Access-Token, X-Auth-Token'
