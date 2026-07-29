@@ -15,11 +15,14 @@ def send_email(subject: str, template_name: str, context: dict, to: List[str]):
     email = EmailMessage(subject=subject, body=body, from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None), to=to)
     email.content_subtype = 'html'
     try:
-        email.send(fail_silently=False)
+        sent_count = email.send(fail_silently=True)
+        if sent_count == 0:
+            logger.warning('Email delivery returned 0 sent messages for %s', to)
+            return False
         return True
-    except Exception as exc:
+    except Exception:
         logger.exception('Email delivery failed for %s', to)
-        raise exc
+        return False
 
 
 def send_welcome_email(user, to_emails: List[str]):

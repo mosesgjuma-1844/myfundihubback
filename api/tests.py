@@ -46,6 +46,29 @@ class LoginViewTests(TestCase):
         self.assertTrue(any('welcome@example.com' in message.to for message in mail.outbox))
 
     @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    @patch('django.core.mail.EmailMessage.send', side_effect=Exception('SMTP unavailable'))
+    def test_register_still_succeeds_when_email_delivery_fails(self, mock_send):
+        response = self.client.post(
+            '/api/auth/register/',
+            data=json.dumps({
+                'firstName': 'Email',
+                'lastName': 'Fallback',
+                'email': 'fallback@example.com',
+                'confirmEmail': 'fallback@example.com',
+                'phoneNumber': '0712345678',
+                'username': 'email_fallback',
+                'password': 'Secret123!',
+                'confirmPassword': 'Secret123!',
+                'role': 'customer',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(User.objects.filter(email='fallback@example.com').exists())
+        self.assertTrue(response.json()['ok'])
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
     def test_forgot_password_sends_reset_code_email(self):
         mail.outbox = []
         User.objects.create_user(
