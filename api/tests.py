@@ -181,6 +181,22 @@ class LoginViewTests(TestCase):
         self.assertEqual(body['user']['lastName'], 'Wanjiku')
         self.assertEqual(body['user']['username'], 'jane_wanjiku')
 
+    def test_login_accepts_username_field(self):
+        response = self.client.post(
+            '/api/auth/login/',
+            data=json.dumps({
+                'username': 'jane_wanjiku',
+                'password': 'Secret123!',
+                'role': 'customer',
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body['ok'])
+        self.assertEqual(body['user']['email'], 'jane@example.com')
+
 
 class PaystackClientTests(TestCase):
     @override_settings(

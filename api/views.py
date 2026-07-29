@@ -48,18 +48,31 @@ def login_view(request):
     except json.JSONDecodeError:
         return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
 
-    email = payload.get('email', '').strip()
+    identifier = (
+        payload.get('email')
+        or payload.get('username')
+        or payload.get('userName')
+        or payload.get('login')
+        or payload.get('identifier')
+        or ''
+    ).strip()
     password = payload.get('password', '').strip()
     role = payload.get('role', 'customer')
 
-    if not email or not password:
+    if not identifier or not password:
         return JsonResponse({'ok': False, 'message': 'Invalid credentials.'}, status=401)
 
-    user = User.objects.filter(email__iexact=email).first() or User.objects.filter(username=email).first()
-    
+    user = None
+    if '@' in identifier:
+        user = User.objects.filter(email__iexact=identifier).first()
+    if not user:
+        user = User.objects.filter(username__iexact=identifier).first()
+    if not user and '@' not in identifier:
+        user = User.objects.filter(email__iexact=identifier).first()
+
     if not user or not user.check_password(password):
         ip = get_client_ip(request)
-        log_security_event('failed_login', email=email, ip=ip)
+        log_security_event('failed_login', email=identifier, ip=ip)
         return JsonResponse({'ok': False, 'message': 'Invalid credentials.'}, status=401)
 
     profile = getattr(user, 'profile', None)
