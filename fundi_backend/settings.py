@@ -280,7 +280,7 @@ if not PAYSTACK_PUBLIC_KEY or not PAYSTACK_SECRET_KEY:
     )
 
 # Frontend URL for payment callbacks
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://myfundihubfront-production.up.railway.app')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://myfundihub.com')
 # Backend URL (used for Paystack callback endpoints)
 BACKEND_URL = os.getenv('BACKEND_URL', 'https://myfundihubback-production.up.railway.app')
 

@@ -1,12 +1,15 @@
 import json
 import logging
 import secrets
+import threading
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import close_old_connections
 from django.db.models import Q, Sum
 from django.http import JsonResponse
 from django.utils import timezone
@@ -223,6 +226,65 @@ def reset_password_view(request):
     return JsonResponse({'ok': True, 'message': 'Password reset successfully.'})
 
 
+def _dispatch_post_commit(callback, *args, **kwargs):
+    def _run_callback():
+        try:
+            close_old_connections()
+            callback(*args, **kwargs)
+        except Exception:
+            logger.exception('Post-request callback failed')
+
+    database_engine = settings.DATABASES.get('default', {}).get('ENGINE', '')
+    if database_engine.endswith('sqlite3'):
+        _run_callback()
+        return
+
+    thread = threading.Thread(target=_run_callback, daemon=True)
+    thread.start()
+
+
+def _send_registration_notifications(user, role, request):
+    try:
+        if user.email:
+            send_welcome_email(user, [user.email])
+
+        admin_emails = list(
+            User.objects.filter(profile__role='admin')
+            .values_list('email', flat=True)
+            .distinct()
+            .exclude(email='')
+        )
+        if admin_emails:
+            send_admin_alert(
+                'New user registration',
+                f"A new {role} account was created for {user.get_full_name() or user.username} ({user.email}).",
+                admin_emails,
+            )
+    except Exception:
+        logger.exception('Failed to send registration notification emails')
+
+
+def _send_booking_notifications(booking):
+    try:
+        if booking.customer and booking.customer.email:
+            send_booking_created(booking, [booking.customer.email])
+
+        admin_emails = list(
+            User.objects.filter(profile__role='admin')
+            .values_list('email', flat=True)
+            .distinct()
+            .exclude(email='')
+        )
+        if admin_emails:
+            send_admin_alert(
+                'New booking created',
+                f"A new {booking.get_service_type_display()} booking was created for {booking.location}.",
+                admin_emails,
+            )
+    except Exception:
+        logger.exception('Failed to send booking notification emails')
+
+
 def _create_user_and_profile(request, payload, role='customer'):
     required_fields = ['firstName', 'lastName', 'email', 'phoneNumber', 'username', 'password']
     missing = [field for field in required_fields if not str(payload.get(field, '')).strip()]
@@ -292,24 +354,7 @@ def _create_user_and_profile(request, payload, role='customer'):
         user.delete()
         return JsonResponse({'ok': False, 'message': 'Failed to create user profile.'}, status=500)
 
-    try:
-        if user.email:
-            send_welcome_email(user, [user.email])
-
-        admin_emails = list(
-            User.objects.filter(profile__role='admin')
-            .values_list('email', flat=True)
-            .distinct()
-            .exclude(email='')
-        )
-        if admin_emails:
-            send_admin_alert(
-                'New user registration',
-                f"A new {role} account was created for {user.get_full_name() or user.username} ({user.email}).",
-                admin_emails,
-            )
-    except Exception:
-        logger.exception('Failed to send registration notification emails')
+    _dispatch_post_commit(_send_registration_notifications, user, role, request)
 
     log_security_event('user_registered', user=user, ip=get_client_ip(request))
 
@@ -759,19 +804,7 @@ def bookings_view(request):
             service_window=payload.get('serviceWindow', 'scheduled'),
             estimated_cost=payload.get('estimatedCost', 0) or 0,
         )
-        try:
-            if booking.customer and booking.customer.email:
-                send_booking_created(booking, [booking.customer.email])
-
-            admin_emails = list(User.objects.filter(profile__role='admin').values_list('email', flat=True).distinct().exclude(email=''))
-            if admin_emails:
-                send_admin_alert(
-                    'New booking created',
-                    f"A new {booking.get_service_type_display()} booking was created for {booking.location}.",
-                    admin_emails,
-                )
-        except Exception:
-            logger.exception('Failed to send booking notification emails')
+        _dispatch_post_commit(_send_booking_notifications, booking)
 
         response = JsonResponse({
             'ok': True,

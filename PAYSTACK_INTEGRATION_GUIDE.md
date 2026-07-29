@@ -36,7 +36,7 @@ Create/update `Backend/.env`:
 # Paystack Configuration
 PAYSTACK_PUBLIC_KEY=pk_test_your_public_key_here
 PAYSTACK_SECRET_KEY=sk_test_your_secret_key_here
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=https://myfundihub.com
 ```
 
 ### 4. Run Migrations

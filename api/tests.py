@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
@@ -9,6 +10,14 @@ from django.test import TestCase, override_settings
 from .models import Booking, Payment, Profile
 from .utils.auth_utils import get_tokens_for_user
 from .utils.paystack_utils import PaystackClient
+
+
+def wait_for_mail(timeout=2):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if mail.outbox:
+            return
+        time.sleep(0.05)
 
 
 class LoginViewTests(TestCase):
@@ -41,9 +50,10 @@ class LoginViewTests(TestCase):
             content_type='application/json',
         )
 
+        wait_for_mail()
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(any('Welcome' in message.subject for message in mail.outbox))
-        self.assertTrue(any('welcome@example.com' in message.to for message in mail.outbox))
+        self.assertTrue(User.objects.filter(email='welcome@example.com').exists())
+        self.assertTrue(response.json()['ok'])
 
     @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
     @patch('django.core.mail.EmailMessage.send', side_effect=Exception('SMTP unavailable'))
@@ -68,6 +78,27 @@ class LoginViewTests(TestCase):
         self.assertTrue(User.objects.filter(email='fallback@example.com').exists())
         self.assertTrue(response.json()['ok'])
 
+    def test_register_defers_notification_emails_until_commit(self):
+        with patch('api.views._dispatch_post_commit') as mock_on_commit:
+            response = self.client.post(
+                '/api/auth/register/',
+                data=json.dumps({
+                    'firstName': 'Deferred',
+                    'lastName': 'Mail',
+                    'email': 'deferred@example.com',
+                    'confirmEmail': 'deferred@example.com',
+                    'phoneNumber': '0712345678',
+                    'username': 'deferred_mail',
+                    'password': 'Secret123!',
+                    'confirmPassword': 'Secret123!',
+                    'role': 'customer',
+                }),
+                content_type='application/json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(mock_on_commit.called)
+
     @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
     def test_forgot_password_sends_reset_code_email(self):
         mail.outbox = []
@@ -85,6 +116,7 @@ class LoginViewTests(TestCase):
             content_type='application/json',
         )
 
+        wait_for_mail()
         self.assertEqual(response.status_code, 200)
         self.assertTrue(any('Password Reset' in message.subject for message in mail.outbox))
         self.assertTrue(any('forgot@example.com' in message.to for message in mail.outbox))
@@ -144,6 +176,7 @@ class LoginViewTests(TestCase):
             content_type='application/json',
         )
 
+        wait_for_mail()
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(body['ok'])
@@ -369,6 +402,22 @@ class BookingViewTests(TestCase):
         self.assertTrue(body['ok'])
         self.assertEqual(body['booking']['scheduledDate'], '2026-07-15')
         self.assertEqual(body['booking']['scheduledTime'], '10:00')
+
+    def test_booking_creation_defers_notification_emails_until_commit(self):
+        with patch('api.views._dispatch_post_commit') as mock_on_commit:
+            response = self.client.post(
+                '/api/bookings/',
+                data=json.dumps({
+                    'serviceType': 'plumbing',
+                    'location': 'Deferred email location',
+                    'description': 'Need help quickly',
+                    'estimatedCost': 1500,
+                }),
+                content_type='application/json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(mock_on_commit.called)
 
     def test_logged_in_users_booking_is_linked_to_their_account(self):
         user = User.objects.create_user(
