@@ -5,15 +5,10 @@ def allow_railway_origin(get_response):
     def middleware(request):
         origin = request.META.get('HTTP_ORIGIN', '')
         allowed_origins = {
-            'https://myfundihubfront.up.railway.app',
-            'https://myfundihubback.up.railway.app',
-            'https://myfundihubfront-production.up.railway.app',
             'https://myfundihub.com',
+            'https://www.myfundihub.com',
+            'https://api.myfundihub.com',
             'https://myfundihubback-production.up.railway.app',
-            'http://localhost:3000',
-            'http://localhost:5173',
-            'http://127.0.0.1:3000',
-            'http://127.0.0.1:5173',
         }
         railway_domain = request.META.get('HTTP_HOST', '')
         if railway_domain:
