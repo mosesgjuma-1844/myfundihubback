@@ -13,3 +13,5 @@ class BookingAdmin(admin.ModelAdmin):
     list_display = ('customer', 'service_type', 'location', 'status', 'created_at')
     list_filter = ('status', 'service_type', 'service_window')
     search_fields = ('location', 'description', 'customer__username')
+    date_hierarchy = 'created_at'
+    ordering = ('-created_at',)

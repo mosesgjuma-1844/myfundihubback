@@ -3,9 +3,12 @@ import os
 import time
 from unittest.mock import patch
 
+from datetime import datetime
+
 from django.contrib.auth.models import User
 from django.core import mail
 from django.test import TestCase, override_settings
+from django.utils import timezone
 
 from .models import Booking, Payment, Profile
 from .utils.auth_utils import get_tokens_for_user
@@ -594,6 +597,42 @@ class BookingViewTests(TestCase):
         self.assertEqual(payload['bookings'][0]['townOrEstate'], 'Westlands')
         self.assertEqual(payload['bookings'][0]['landmark'], 'Near the mall')
         self.assertTrue(payload['bookings'][0]['canAssignTechnician'])
+
+    def test_booking_list_can_filter_by_application_date(self):
+        customer = User.objects.create_user(
+            username='customer_date_filter',
+            email='customerdatefilter@example.com',
+            password='Secret123!',
+            first_name='Customer',
+            last_name='Date',
+        )
+        Profile.objects.create(user=customer, role='customer')
+
+        matching_booking = Booking.objects.create(
+            customer=customer,
+            service_type='plumbing',
+            location='Match location',
+            description='Need help',
+        )
+        matching_booking.created_at = timezone.make_aware(datetime(2026, 7, 10, 9, 30, 0))
+        matching_booking.save(update_fields=['created_at'])
+
+        other_booking = Booking.objects.create(
+            customer=customer,
+            service_type='electrical',
+            location='Other location',
+            description='Need help later',
+        )
+        other_booking.created_at = timezone.make_aware(datetime(2026, 7, 11, 9, 30, 0))
+        other_booking.save(update_fields=['created_at'])
+
+        response = self.client.get('/api/bookings/?date=2026-07-10')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['count'], 1)
+        self.assertEqual(payload['bookings'][0]['id'], matching_booking.id)
+        self.assertEqual(payload['bookings'][0]['createdAtDate'], '2026-07-10')
 
     def test_technician_only_sees_their_assigned_bookings(self):
         customer = User.objects.create_user(

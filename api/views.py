@@ -482,6 +482,9 @@ def _serialize_booking(booking):
         'status': booking.status,
         'estimatedCost': float(booking.estimated_cost),
         'calloutFee': float(booking.callout_fee),
+        'createdAt': booking.created_at.isoformat() if booking.created_at else None,
+        'createdAtDate': booking.created_at.date().isoformat() if booking.created_at else None,
+        'createdAtTime': booking.created_at.strftime('%H:%M') if booking.created_at else None,
         'customerName': customer_name,
         'customerPhoneNumber': customer_profile.phone_number if customer_profile else '',
         'customer': {
@@ -700,6 +703,7 @@ def bookings_view(request):
         technician_id = request.GET.get('technicianId')
         search = request.GET.get('search')
         customer_id = request.GET.get('customer_id') or request.GET.get('customerId')
+        booked_date = request.GET.get('date') or request.GET.get('bookedDate') or request.GET.get('createdDate')
 
         if request.user.is_authenticated:
             profile = getattr(request.user, 'profile', None)
@@ -716,6 +720,11 @@ def bookings_view(request):
             bookings = bookings.filter(service_type__iexact=service_type)
         if technician_id:
             bookings = bookings.filter(assigned_technician__id=technician_id)
+        if booked_date:
+            try:
+                bookings = bookings.filter(created_at__date=datetime.strptime(booked_date, '%Y-%m-%d').date())
+            except ValueError:
+                pass
         if search:
             bookings = bookings.filter(
                 Q(location__icontains=search) |
@@ -837,13 +846,22 @@ def bookings_view(request):
 @csrf_exempt
 @require_POST
 def assign_booking_view(request):
+    if request.method == 'OPTIONS':
+        response = JsonResponse({}, status=204)
+        _add_cors_headers(response, request)
+        return response
+
     try:
         payload = json.loads(request.body or '{}')
     except json.JSONDecodeError:
-        return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+        response = JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
 
     if not isinstance(payload, dict):
-        return JsonResponse({'ok': False, 'message': 'JSON object payload is required.'}, status=400)
+        response = JsonResponse({'ok': False, 'message': 'JSON object payload is required.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
 
     booking_id = (
         payload.get('bookingId')
@@ -864,15 +882,21 @@ def assign_booking_view(request):
         technician_id = technician_id.get('id') or technician_id.get('technician_id')
 
     if not booking_id or not technician_id:
-        return JsonResponse({'ok': False, 'message': 'Booking ID and technician ID are required.'}, status=400)
+        response = JsonResponse({'ok': False, 'message': 'Booking ID and technician ID are required.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
 
     booking = Booking.objects.filter(id=booking_id).first()
     if not booking:
-        return JsonResponse({'ok': False, 'message': 'Booking not found.'}, status=404)
+        response = JsonResponse({'ok': False, 'message': 'Booking not found.'}, status=404)
+        _add_cors_headers(response, request)
+        return response
 
     technician = User.objects.filter(id=technician_id).first()
     if not technician or getattr(getattr(technician, 'profile', None), 'role', '') != 'technician':
-        return JsonResponse({'ok': False, 'message': 'Technician not found.'}, status=404)
+        response = JsonResponse({'ok': False, 'message': 'Technician not found.'}, status=404)
+        _add_cors_headers(response, request)
+        return response
 
     booking.assigned_technician = technician
     booking.status = 'assigned'
@@ -888,8 +912,10 @@ def assign_booking_view(request):
             send_booking_assigned(booking, technician, recipients)
     except Exception:
         pass
-    return JsonResponse({
+    response = JsonResponse({
         'ok': True,
         'message': 'Booking assigned to technician successfully.',
         'booking': _serialize_booking(booking),
     })
+    _add_cors_headers(response, request)
+    return response
