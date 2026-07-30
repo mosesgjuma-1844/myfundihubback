@@ -634,6 +634,46 @@ class BookingViewTests(TestCase):
         self.assertEqual(payload['bookings'][0]['id'], matching_booking.id)
         self.assertEqual(payload['bookings'][0]['createdAtDate'], '2026-07-10')
 
+    @patch('api.views._dispatch_post_commit')
+    @patch('api.views.send_booking_assigned')
+    def test_assign_booking_defers_assignment_email(self, mock_send_assignment, mock_dispatch):
+        customer = User.objects.create_user(
+            username='customer_assign_email',
+            email='customerassignemail@example.com',
+            password='Secret123!',
+            first_name='Customer',
+            last_name='AssignEmail',
+        )
+        technician = User.objects.create_user(
+            username='tech_assign_email',
+            email='techassignemail@example.com',
+            password='Secret123!',
+            first_name='Tech',
+            last_name='AssignEmail',
+        )
+        Profile.objects.create(user=customer, role='customer')
+        Profile.objects.create(user=technician, role='technician')
+
+        booking = Booking.objects.create(
+            customer=customer,
+            service_type='plumbing',
+            location='Email target',
+            description='Need technician',
+        )
+
+        response = self.client.post(
+            '/api/bookings/assign/',
+            data=json.dumps({
+                'booking_id': booking.id,
+                'technician_id': technician.id,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        mock_dispatch.assert_called_once()
+        mock_send_assignment.assert_not_called()
+
     def test_technician_only_sees_their_assigned_bookings(self):
         customer = User.objects.create_user(
             username='customer_three',

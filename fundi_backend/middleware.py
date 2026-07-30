@@ -13,6 +13,7 @@ def allow_railway_origin(get_response):
             'https://www.myfundihub.com',
             'https://api.myfundihub.com',
             'https://myfundihubback-production.up.railway.app',
+            'https://myfundihubfront-production.up.railway.app',
         }
         railway_domain = request.META.get('HTTP_HOST', '')
         if railway_domain:

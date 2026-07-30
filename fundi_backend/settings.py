@@ -56,7 +56,9 @@ if railway_domain:
 CORS_ALLOWED_ORIGINS = [
     'https://myfundihubfront-production.up.railway.app',
     'https://myfundihub.com',
+    'https://www.myfundihub.com',
     'https://myfundihubback-production.up.railway.app',
+    'https://api.myfundihub.com',
 ]
 if railway_domain:
     CORS_ALLOWED_ORIGINS.append(f'https://{railway_domain}')

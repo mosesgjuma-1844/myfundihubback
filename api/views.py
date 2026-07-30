@@ -901,17 +901,20 @@ def assign_booking_view(request):
     booking.assigned_technician = technician
     booking.status = 'assigned'
     booking.save(update_fields=['assigned_technician', 'status'])
-    # notify customer and technician about assignment
-    try:
-        recipients = []
-        if booking.customer and booking.customer.email:
-            recipients.append(booking.customer.email)
-        if technician and technician.email:
-            recipients.append(technician.email)
-        if recipients:
-            send_booking_assigned(booking, technician, recipients)
-    except Exception:
-        pass
+
+    def _notify_assignment():
+        try:
+            recipients = []
+            if booking.customer and booking.customer.email:
+                recipients.append(booking.customer.email)
+            if technician and technician.email:
+                recipients.append(technician.email)
+            if recipients:
+                send_booking_assigned(booking, technician, recipients)
+        except Exception:
+            logger.exception('Failed to send booking assignment notification')
+
+    _dispatch_post_commit(_notify_assignment)
     response = JsonResponse({
         'ok': True,
         'message': 'Booking assigned to technician successfully.',
