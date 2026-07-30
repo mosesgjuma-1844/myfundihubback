@@ -19,10 +19,11 @@ from django.core.cache import cache
 import hmac
 import hashlib
 
-from .models import Payment, Booking
+from .models import Payment, Booking, Transaction
 from .utils.paystack_utils import (
     initialize_payment_for_booking,
     verify_and_process_payment,
+    get_paystack_client,
     PaystackError,
 )
 from .utils.auth_utils import rate_limit, log_security_event, get_client_ip
@@ -358,7 +359,7 @@ def payment_status_view(request, payment_id):
         "amount": 5000.00,
         "booking_id": 1,
         "created_at": "2024-07-24T10:00:00Z",
-        "completed_at": "2024-07-24T10:05:00Z"
+ "completed_at": "2024-07-24T10:05:00Z"
     }
     """
     try:
@@ -405,6 +406,187 @@ def payment_status_view(request, payment_id):
             {'ok': False, 'message': 'Error retrieving payment status'},
             status=500
         )
+
+
+@csrf_exempt
+@api_view(['GET'])
+@authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
+@permission_classes([])
+def payment_history_view(request):
+    """
+    Get Paystack-backed payment history for the authenticated user.
+    Optional query params:
+        status: Filter by status (pending, success, failed, abandoned)
+        source: paystack | local (default: local)
+        page: int
+    """
+    try:
+        user = get_authenticated_user(request)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return JsonResponse({'ok': False, 'message': 'Authentication required.'}, status=401)
+
+        source = request.query_params.get('source', 'local').lower()
+        status = request.query_params.get('status')
+        page = int(request.query_params.get('page', 1))
+        page_size = int(request.query_params.get('page_size', 10))
+
+        if source == 'paystack':
+            client = get_paystack_client()
+            transactions = client.list_transactions(status=status, page=page, per_page=page_size, customer_email=user.email)
+
+            payments_list = []
+            for txn in transactions:
+                txn_reference = txn.get('reference') or txn.get('transaction')
+                payment_id = None
+                payment_record = None
+                if txn_reference:
+                    payment_record = Payment.objects.filter(paystack_reference=txn_reference).first()
+                    if payment_record:
+                        payment_id = payment_record.id
+
+                payments_list.append({
+                    'id': payment_id,
+                    'reference': txn_reference,
+                    'amount': str(float(txn.get('amount', 0)) / 100) if txn.get('amount') is not None else None,
+                    'status': txn.get('status'),
+                    'payment_method': 'paystack',
+                    'payment_type': payment_record.payment_type if payment_record else 'callout_fee',
+                    'created_at': txn.get('transaction_date') or txn.get('created_at') or None,
+                    'completed_at': txn.get('paid_at') or None,
+                    'raw': txn,
+                })
+
+            return JsonResponse({
+                'ok': True,
+                'count': len(payments_list),
+                'page': page,
+                'page_size': page_size,
+                'payments': payments_list,
+            }, status=200)
+
+        payments = Payment.objects.filter(user=user)
+        if status:
+            payments = payments.filter(status=status)
+        payments = payments.order_by('-created_at')
+
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        payments_list = []
+        for payment in payments[start:end]:
+            payments_list.append({
+                'id': payment.id,
+                'booking_id': payment.booking.id,
+                'amount': str(payment.amount),
+                'status': payment.status,
+                'payment_method': payment.payment_method,
+                'payment_type': payment.payment_type,
+                'reference': payment.paystack_reference,
+                'created_at': payment.created_at.isoformat(),
+                'completed_at': payment.completed_at.isoformat() if payment.completed_at else None,
+                'refund_available': payment.status == 'completed',
+            })
+
+        return JsonResponse({
+            'ok': True,
+            'count': payments.count(),
+            'page': page,
+            'page_size': page_size,
+            'payments': payments_list,
+        }, status=200)
+
+    except PaystackError as e:
+        logger.error(f"Paystack error retrieving history: {str(e)}")
+        return JsonResponse({'ok': False, 'message': str(e)}, status=400)
+    except Exception as e:
+        logger.error(f"Error retrieving payment history: {str(e)}")
+        return JsonResponse({'ok': False, 'message': 'Error retrieving payment history'}, status=500)
+
+
+@csrf_exempt
+@api_view(['POST'])
+@authentication_classes([FlexibleJWTAuthentication, SessionAuthentication])
+@permission_classes([])
+def refund_payment_view(request, payment_id):
+    """
+    Refund a payment through Paystack.
+    Request body:
+        {"amount": 2500.00}
+    """
+    try:
+        user = get_authenticated_user(request)
+        if not user or not getattr(user, 'is_authenticated', False):
+            return JsonResponse({'ok': False, 'message': 'Authentication required.'}, status=401)
+
+        payload = json.loads(request.body or '{}')
+        amount = payload.get('amount')
+
+        try:
+            payment = Payment.objects.get(id=payment_id)
+        except Payment.DoesNotExist:
+            return JsonResponse({'ok': False, 'message': 'Payment not found'}, status=404)
+
+        if payment.user != user and getattr(getattr(user, 'profile', None), 'role', '') != 'admin':
+            log_security_event(
+                'payment_refund_unauthorized',
+                user=user,
+                ip=get_client_ip(request),
+                payment_id=payment_id,
+            )
+            return JsonResponse({'ok': False, 'message': 'Unauthorized'}, status=403)
+
+        if payment.status != 'completed':
+            return JsonResponse({'ok': False, 'message': 'Only completed payments can be refunded.'}, status=400)
+
+        if amount is not None:
+            try:
+                amount = float(amount)
+            except (ValueError, TypeError):
+                return JsonResponse({'ok': False, 'message': 'Invalid refund amount.'}, status=400)
+            if amount <= 0 or amount > float(payment.amount):
+                return JsonResponse({'ok': False, 'message': 'Refund amount must be positive and not exceed payment amount.'}, status=400)
+
+        client = get_paystack_client()
+        refund_response = client.refund_payment(payment, amount=amount)
+
+        payment.status = 'refunded'
+        payment.save(update_fields=['status', 'updated_at'])
+
+        Transaction.objects.create(
+            payment=payment,
+            transaction_type='refund',
+            amount=amount if amount is not None else payment.amount,
+            paystack_reference=payment.paystack_reference,
+            paystack_transaction_id=refund_response.get('data', {}).get('id'),
+            status=refund_response.get('data', {}).get('status') or 'pending',
+            response=refund_response,
+            notes='Refund requested via backend',
+        )
+
+        log_security_event(
+            'payment_refunded',
+            user=user,
+            ip=get_client_ip(request),
+            payment_id=payment_id,
+            refund_amount=str(amount if amount is not None else payment.amount),
+        )
+
+        return JsonResponse({
+            'ok': True,
+            'payment_id': payment.id,
+            'status': payment.status,
+            'refund': refund_response.get('data', {}),
+            'message': 'Refund requested successfully.',
+        }, status=200)
+
+    except PaystackError as e:
+        logger.error(f"Paystack error during refund: {str(e)}")
+        return JsonResponse({'ok': False, 'message': str(e)}, status=400)
+    except json.JSONDecodeError:
+        return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+    except Exception as e:
+        logger.error(f"Error processing refund: {str(e)}")
+        return JsonResponse({'ok': False, 'message': 'Refund failed'}, status=500)
 
 
 @csrf_exempt

@@ -21,6 +21,8 @@ from .payment_views import (
     verify_payment_view,
     paystack_callback_view,
     payment_status_view,
+    payment_history_view,
+    refund_payment_view,
     paystack_webhook_view,
     user_payments_view,
 )
@@ -48,5 +50,7 @@ urlpatterns = [
     path('payments/callback/<str:reference>/', paystack_callback_view, name='paystack-callback'),
     path('payments/<int:payment_id>/status/', payment_status_view, name='payment-status'),
     path('payments/list/', user_payments_view, name='user-payments'),
+    path('payments/history/', payment_history_view, name='payment-history'),
+    path('payments/<int:payment_id>/refund/', refund_payment_view, name='refund-payment'),
     path('payments/webhook/paystack/', paystack_webhook_view, name='paystack-webhook'),
 ]

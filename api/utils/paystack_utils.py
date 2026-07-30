@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 PAYSTACK_BASE_URL = 'https://api.paystack.co'
 PAYSTACK_INITIALIZE_URL = f'{PAYSTACK_BASE_URL}/transaction/initialize'
 PAYSTACK_VERIFY_URL = f'{PAYSTACK_BASE_URL}/transaction/verify'
+PAYSTACK_TRANSACTIONS_URL = f'{PAYSTACK_BASE_URL}/transaction'
+PAYSTACK_REFUND_URL = f'{PAYSTACK_BASE_URL}/refund'
 PAYSTACK_CHARGE_URL = f'{PAYSTACK_BASE_URL}/charge'
 
 
@@ -227,6 +229,90 @@ class PaystackClient:
         except Exception as e:
             logger.error(f"Unexpected error during payment verification: {str(e)}")
             raise PaystackError(f"Payment verification error: {str(e)}")
+
+    def list_transactions(self, status=None, page=1, per_page=50, customer_email=None):
+        """
+        List Paystack transactions and optionally filter by customer email.
+        """
+        try:
+            params = {
+                'perPage': per_page,
+                'page': page,
+            }
+            if status:
+                params['status'] = status
+
+            response = requests.get(
+                PAYSTACK_TRANSACTIONS_URL,
+                headers=self._get_headers(),
+                params=params,
+                timeout=10,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            if not data.get('status'):
+                logger.error(f"Paystack list transactions failed: {data.get('message')}")
+                raise PaystackError(data.get('message', 'Failed to fetch payment history'))
+
+            transactions = data.get('data', []) or []
+            if customer_email:
+                lower_email = customer_email.lower()
+                transactions = [
+                    txn for txn in transactions
+                    if (txn.get('customer', {}).get('email', '').lower() == lower_email) or
+                       (txn.get('customer_email', '').lower() == lower_email) or
+                       (txn.get('authorization', {}).get('email', '').lower() == lower_email)
+                ]
+
+            return transactions
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error during transaction listing: {str(e)}")
+            raise PaystackError(f"Failed to fetch payment history: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during transaction listing: {str(e)}")
+            raise PaystackError(f"Failed to fetch payment history: {str(e)}")
+
+    def refund_payment(self, payment_obj, amount=None):
+        """
+        Issue a refund for a completed Paystack payment.
+        """
+        try:
+            if not payment_obj.paystack_reference:
+                raise PaystackError('No Paystack reference available for this payment')
+
+            if amount is None:
+                amount = payment_obj.amount
+
+            amount_kobo = int(float(amount) * 100)
+            payload = {
+                'reference': payment_obj.paystack_reference,
+                'amount': amount_kobo,
+            }
+
+            response = requests.post(
+                PAYSTACK_REFUND_URL,
+                json=payload,
+                headers=self._get_headers(),
+                timeout=10,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            if not data.get('status'):
+                logger.error(f"Paystack refund failed for {payment_obj.paystack_reference}: {data.get('message')}")
+                raise PaystackError(data.get('message', 'Refund request failed'))
+
+            logger.info(f"Refund requested successfully for payment {payment_obj.id}")
+            return data
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Request error during refund: {str(e)}")
+            raise PaystackError(f"Refund request failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during refund: {str(e)}")
+            raise PaystackError(f"Refund request failed: {str(e)}")
 
     def handle_successful_payment(self, payment_obj, verification_data):
         """
