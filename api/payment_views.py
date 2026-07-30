@@ -6,6 +6,7 @@ Handles payment initialization, verification, and webhooks.
 
 import json
 import logging
+from decimal import Decimal
 from django.http import JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
@@ -167,22 +168,42 @@ def initialize_payment_view(request):
                     'payment_id': booking.payment.id,
                 }, status=400)
 
-        # Validate booking status - can only pay if pending
-        if booking.status != 'pending':
+        # Validate booking status - allow pending, pending payment, or completed jobs that need payment
+        if booking.status not in {'pending', 'pending_payment', 'completed'}:
             return JsonResponse(
-                {'ok': False, 'message': f'Booking must be in pending status to pay. Current status: {booking.status}'},
+                {'ok': False, 'message': f'Booking must be payable before payment. Current status: {booking.status}'},
                 status=400
             )
 
-        # Validate callout fee
-        if not booking.callout_fee or booking.callout_fee <= 0:
-            return JsonResponse(
-                {'ok': False, 'message': 'Booking callout fee must be greater than 0'},
-                status=400
-            )
+        amount_value = payload.get('amount')
+        if amount_value is None:
+            amount_value = booking.estimated_cost if booking.estimated_cost and booking.estimated_cost > 0 else booking.callout_fee
+        try:
+            payment_amount = Decimal(str(amount_value))
+        except Exception:
+            return JsonResponse({'ok': False, 'message': 'Payment amount must be a valid number.'}, status=400)
 
-        # Create and initialize payment with callout fee
-        payment, init_response = initialize_payment_for_booking(booking, request)
+        if payment_amount <= 0:
+            return JsonResponse({'ok': False, 'message': 'Payment amount must be greater than 0'}, status=400)
+
+        if not hasattr(booking, 'payment'):
+            payment = Payment.objects.create(
+                booking=booking,
+                user=user,
+                amount=payment_amount,
+                payment_method='paystack',
+                payment_type='service_cost',
+                status='pending',
+            )
+        else:
+            payment = booking.payment
+            payment.amount = payment_amount
+            payment.user = user
+            payment.payment_type = 'service_cost'
+            payment.status = 'pending'
+            payment.save(update_fields=['amount', 'user', 'payment_type', 'status'])
+
+        init_response = initialize_payment_for_booking(booking, request)
 
         # Update booking status to pending_payment
         booking.status = 'pending_payment'

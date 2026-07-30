@@ -33,6 +33,7 @@ from .utils.auth_utils import (
     get_client_ip,
     log_security_event,
 )
+from decimal import Decimal
 from .utils.rbac import get_user_from_jwt
 
 logger = logging.getLogger(__name__)
@@ -841,6 +842,81 @@ def bookings_view(request):
         response = JsonResponse({'ok': False, 'message': 'Internal server error.'}, status=500)
         _add_cors_headers(response, request)
         return response
+
+
+@csrf_exempt
+@require_POST
+def complete_booking_view(request):
+    if request.method == 'OPTIONS':
+        response = JsonResponse({}, status=204)
+        _add_cors_headers(response, request)
+        return response
+
+    try:
+        payload = json.loads(request.body or '{}')
+    except json.JSONDecodeError:
+        response = JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
+
+    if not isinstance(payload, dict):
+        response = JsonResponse({'ok': False, 'message': 'JSON object payload is required.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
+
+    booking_id = payload.get('bookingId') or payload.get('booking_id') or payload.get('booking') or payload.get('id')
+    amount = payload.get('amount') or payload.get('finalAmount') or payload.get('price')
+
+    if not booking_id:
+        response = JsonResponse({'ok': False, 'message': 'Booking ID is required.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
+
+    try:
+        amount_value = Decimal(str(amount)) if amount is not None else None
+    except Exception:
+        response = JsonResponse({'ok': False, 'message': 'Amount must be a valid number.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
+
+    if amount_value is None or amount_value <= 0:
+        response = JsonResponse({'ok': False, 'message': 'Amount must be greater than zero.'}, status=400)
+        _add_cors_headers(response, request)
+        return response
+
+    booking = Booking.objects.filter(id=booking_id).first()
+    if not booking:
+        response = JsonResponse({'ok': False, 'message': 'Booking not found.'}, status=404)
+        _add_cors_headers(response, request)
+        return response
+
+    if not request.user.is_authenticated:
+        response = JsonResponse({'ok': False, 'message': 'Authentication required.'}, status=401)
+        _add_cors_headers(response, request)
+        return response
+
+    profile = getattr(request.user, 'profile', None)
+    if not profile or profile.role != 'technician':
+        response = JsonResponse({'ok': False, 'message': 'Only technicians can complete jobs.'}, status=403)
+        _add_cors_headers(response, request)
+        return response
+
+    if booking.assigned_technician_id != request.user.id:
+        response = JsonResponse({'ok': False, 'message': 'You can only complete jobs assigned to you.'}, status=403)
+        _add_cors_headers(response, request)
+        return response
+
+    booking.estimated_cost = amount_value
+    booking.status = 'pending_payment'
+    booking.save(update_fields=['estimated_cost', 'status'])
+
+    response = JsonResponse({
+        'ok': True,
+        'message': 'Job completed successfully.',
+        'booking': _serialize_booking(booking),
+    })
+    _add_cors_headers(response, request)
+    return response
 
 
 @csrf_exempt

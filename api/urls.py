@@ -14,6 +14,7 @@ from .views import (
     technician_dashboard_view,
     technicians_view,
     assign_booking_view,
+    complete_booking_view,
     verify_reset_code_view,
 )
 from .payment_views import (
@@ -36,6 +37,7 @@ urlpatterns = [
     path('auth/reset-password/', reset_password_view, name='reset-password'),
     path('bookings/', bookings_view, name='bookings'),
     path('bookings/assign/', assign_booking_view, name='assign-booking'),
+    path('bookings/complete/', complete_booking_view, name='complete-booking'),
     path('technicians/', technicians_view, name='technicians'),
     path('user/', user_view, name='user'),
     path('admin/users/', admin_users_view, name='admin-users'),
