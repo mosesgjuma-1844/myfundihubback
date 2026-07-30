@@ -458,9 +458,17 @@ def _serialize_booking(booking):
             return value.strftime('%H:%M')
         return str(value)
 
+    customer_profile = getattr(booking.customer, 'profile', None) if booking.customer else None
+    customer_name = (
+        f"{booking.customer.first_name} {booking.customer.last_name}".strip()
+        or booking.customer.username
+        if booking.customer else None
+    )
+
     return {
         'id': booking.id,
         'serviceType': booking.get_service_type_display(),
+        'serviceTypeKey': booking.service_type,
         'location': booking.location,
         'county': booking.county,
         'townOrEstate': booking.town_or_estate,
@@ -473,14 +481,20 @@ def _serialize_booking(booking):
         'serviceWindow': booking.service_window,
         'status': booking.status,
         'estimatedCost': float(booking.estimated_cost),
+        'calloutFee': float(booking.callout_fee),
+        'customerName': customer_name,
+        'customerPhoneNumber': customer_profile.phone_number if customer_profile else '',
         'customer': {
             'id': booking.customer.id,
-            'name': f"{booking.customer.first_name} {booking.customer.last_name}".strip() or booking.customer.username,
+            'name': customer_name,
+            'phoneNumber': customer_profile.phone_number if customer_profile else '',
         } if booking.customer else None,
         'assignedTechnician': {
             'id': booking.assigned_technician.id,
             'name': f"{booking.assigned_technician.first_name} {booking.assigned_technician.last_name}".strip() or booking.assigned_technician.username,
         } if booking.assigned_technician else None,
+        'canAssignTechnician': booking.status in {'pending', 'pending_payment'} or booking.assigned_technician is None,
+        'assignedTechnicianId': booking.assigned_technician_id,
     }
 
 
@@ -712,7 +726,7 @@ def bookings_view(request):
             )
 
         payload = [_serialize_booking(booking) for booking in bookings]
-        response = JsonResponse({'ok': True, 'bookings': payload})
+        response = JsonResponse({'ok': True, 'count': len(payload), 'bookings': payload})
         _add_cors_headers(response, request)
         return response
 
@@ -824,12 +838,30 @@ def bookings_view(request):
 @require_POST
 def assign_booking_view(request):
     try:
-        payload = json.loads(request.body)
+        payload = json.loads(request.body or '{}')
     except json.JSONDecodeError:
         return JsonResponse({'ok': False, 'message': 'Invalid JSON payload.'}, status=400)
 
-    booking_id = payload.get('bookingId')
-    technician_id = payload.get('technicianId')
+    if not isinstance(payload, dict):
+        return JsonResponse({'ok': False, 'message': 'JSON object payload is required.'}, status=400)
+
+    booking_id = (
+        payload.get('bookingId')
+        or payload.get('booking_id')
+        or payload.get('booking')
+        or payload.get('id')
+    )
+    technician_id = (
+        payload.get('technicianId')
+        or payload.get('technician_id')
+        or payload.get('technician')
+        or payload.get('technicianId')
+    )
+
+    if isinstance(booking_id, dict):
+        booking_id = booking_id.get('id') or booking_id.get('booking_id')
+    if isinstance(technician_id, dict):
+        technician_id = technician_id.get('id') or technician_id.get('technician_id')
 
     if not booking_id or not technician_id:
         return JsonResponse({'ok': False, 'message': 'Booking ID and technician ID are required.'}, status=400)
@@ -844,7 +876,7 @@ def assign_booking_view(request):
 
     booking.assigned_technician = technician
     booking.status = 'assigned'
-    booking.save()
+    booking.save(update_fields=['assigned_technician', 'status'])
     # notify customer and technician about assignment
     try:
         recipients = []

@@ -523,6 +523,78 @@ class BookingViewTests(TestCase):
 
         self.assertNotEqual(payment_response.status_code, 404)
 
+    def test_assign_booking_accepts_snake_case_payload(self):
+        customer = User.objects.create_user(
+            username='customer_assign',
+            email='customerassign@example.com',
+            password='Secret123!',
+            first_name='Customer',
+            last_name='Assign',
+        )
+        technician = User.objects.create_user(
+            username='tech_assign',
+            email='techassign@example.com',
+            password='Secret123!',
+            first_name='Tech',
+            last_name='Assign',
+        )
+        Profile.objects.create(user=customer, role='customer')
+        Profile.objects.create(user=technician, role='technician')
+
+        booking = Booking.objects.create(
+            customer=customer,
+            service_type='plumbing',
+            location='Assign target',
+            description='Need technician',
+        )
+
+        response = self.client.post(
+            '/api/bookings/assign/',
+            data=json.dumps({
+                'booking_id': booking.id,
+                'technician_id': technician.id,
+            }),
+            content_type='application/json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        booking.refresh_from_db()
+        self.assertEqual(booking.assigned_technician, technician)
+        self.assertEqual(booking.status, 'assigned')
+        self.assertEqual(response.json()['booking']['assignedTechnician']['id'], technician.id)
+
+    def test_booking_list_includes_customer_details_and_assignment_metadata(self):
+        customer = User.objects.create_user(
+            username='customer_details',
+            email='customerdetails@example.com',
+            password='Secret123!',
+            first_name='Customer',
+            last_name='Details',
+        )
+        Profile.objects.create(user=customer, role='customer', phone_number='0712345678')
+
+        booking = Booking.objects.create(
+            customer=customer,
+            service_type='plumbing',
+            location='Test location',
+            town_or_estate='Westlands',
+            landmark='Near the mall',
+            description='Need help',
+            status='pending',
+        )
+
+        response = self.client.get('/api/bookings/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['count'], 1)
+        self.assertEqual(payload['bookings'][0]['customerName'], 'Customer Details')
+        self.assertEqual(payload['bookings'][0]['customerPhoneNumber'], '0712345678')
+        self.assertEqual(payload['bookings'][0]['serviceType'], 'Plumbing')
+        self.assertEqual(payload['bookings'][0]['townOrEstate'], 'Westlands')
+        self.assertEqual(payload['bookings'][0]['landmark'], 'Near the mall')
+        self.assertTrue(payload['bookings'][0]['canAssignTechnician'])
+
     def test_technician_only_sees_their_assigned_bookings(self):
         customer = User.objects.create_user(
             username='customer_three',
