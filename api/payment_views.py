@@ -6,6 +6,7 @@ Handles payment initialization, verification, and webhooks.
 
 import json
 import logging
+import secrets
 from decimal import Decimal
 from django.http import JsonResponse
 from django.shortcuts import redirect
@@ -194,6 +195,7 @@ def initialize_payment_view(request):
                 payment_method='paystack',
                 payment_type='service_cost',
                 status='pending',
+                paystack_reference=f"FUNDI-{booking.id}-{secrets.token_hex(6).upper()}",
             )
         else:
             payment = booking.payment
@@ -203,7 +205,7 @@ def initialize_payment_view(request):
             payment.status = 'pending'
             payment.save(update_fields=['amount', 'user', 'payment_type', 'status'])
 
-        init_response = initialize_payment_for_booking(booking, request)
+        init_response = initialize_payment_for_booking(booking, request, payment_obj=payment)
 
         # Update booking status to pending_payment
         booking.status = 'pending_payment'

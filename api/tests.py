@@ -12,7 +12,7 @@ from django.utils import timezone
 
 from .models import Booking, Payment, Profile
 from .utils.auth_utils import get_tokens_for_user
-from .utils.paystack_utils import PaystackClient
+from .utils.paystack_utils import PaystackClient, initialize_payment_for_booking
 
 
 def wait_for_mail(timeout=2):
@@ -273,6 +273,44 @@ class PaystackClientTests(TestCase):
         self.assertTrue(result['success'])
         self.assertIn('mock-paystack', result['authorization_url'])
         self.assertEqual(payment.status, 'processing')
+
+    @override_settings(
+        PAYSTACK_PUBLIC_KEY='pk_test_dummy',
+        PAYSTACK_SECRET_KEY='sk_test_dummy',
+        PAYSTACK_USE_MOCK=True,
+        DEBUG=True,
+    )
+    def test_initialize_payment_for_booking_reuses_existing_payment(self):
+        user = User.objects.create_user(
+            username='existing_payment_user',
+            email='existingpayment@example.com',
+            password='Secret123!',
+            first_name='Existing',
+            last_name='Payment',
+        )
+        Profile.objects.create(user=user, role='customer')
+        booking = Booking.objects.create(
+            customer=user,
+            service_type='plumbing',
+            location='Existing payment location',
+            description='Need help',
+            estimated_cost=1000,
+            callout_fee=1000,
+        )
+        existing_payment = Payment.objects.create(
+            booking=booking,
+            user=user,
+            amount=1000,
+            payment_method='paystack',
+            payment_type='callout_fee',
+        )
+
+        payment, init_response = initialize_payment_for_booking(booking)
+
+        self.assertEqual(payment.id, existing_payment.id)
+        self.assertEqual(Payment.objects.filter(booking=booking).count(), 1)
+        self.assertTrue(init_response['success'])
+        self.assertEqual(payment.paystack_reference, init_response['reference'])
 
 
 class BookingViewTests(TestCase):

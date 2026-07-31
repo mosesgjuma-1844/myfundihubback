@@ -5,6 +5,7 @@ Handles all Paystack API interactions for payment processing.
 """
 
 import logging
+import secrets
 from decimal import Decimal
 
 import requests
@@ -78,8 +79,12 @@ class PaystackClient:
             user = payment_obj.user
             booking = payment_obj.booking
 
+            if not payment_obj.paystack_reference:
+                payment_obj.paystack_reference = f"FUNDI-{payment_obj.id or booking.id}-{secrets.token_hex(6).upper()}"
+                payment_obj.save(update_fields=['paystack_reference'])
+
             if self.use_mock:
-                payment_obj.paystack_reference = f"mock-{payment_obj.id}-{booking.id}"
+                payment_obj.paystack_reference = payment_obj.paystack_reference or f"mock-{payment_obj.id}-{booking.id}"
                 payment_obj.paystack_access_code = f"mock-access-{payment_obj.id}"
                 payment_obj.paystack_authorization_url = 'https://checkout.paystack.com/mock-paystack'
                 payment_obj.status = 'processing'
@@ -106,7 +111,7 @@ class PaystackClient:
                 }
 
             # Prepare reference and callback URL (backend handles verification)
-            reference = f"FUNDI-{payment_obj.id}-{payment_obj.booking.id}"
+            reference = payment_obj.paystack_reference or f"FUNDI-{payment_obj.id}-{payment_obj.booking.id}"
             callback_url = f"{settings.BACKEND_URL}/api/payments/callback/{reference}/"
 
             payload = {
@@ -391,13 +396,14 @@ def get_paystack_client():
     return PaystackClient()
 
 
-def initialize_payment_for_booking(booking, request=None):
+def initialize_payment_for_booking(booking, request=None, payment_obj=None):
     """
-    Create and initialize a payment for a booking.
+    Create or reuse a payment record for a booking and initialize it.
     
     Args:
         booking: Booking model instance
         request: Django request object
+        payment_obj: Optional existing Payment instance to reuse
         
     Returns:
         tuple: (Payment object, initialization response dict)
@@ -406,15 +412,32 @@ def initialize_payment_for_booking(booking, request=None):
         PaystackError: If payment creation or initialization fails
     """
     try:
-        # Create payment record for callout fee
-        payment = Payment.objects.create(
-            booking=booking,
-            user=booking.customer,
-            amount=booking.callout_fee,
-            payment_method='paystack',
-            payment_type='callout_fee',
-            description=f"Callout fee for {booking.get_service_type_display()} service at {booking.location}",
-        )
+        payment = payment_obj
+        if payment is None:
+            existing_payment = getattr(booking, 'payment', None)
+            if existing_payment is not None:
+                payment = existing_payment
+            else:
+                payment = Payment.objects.create(
+                    booking=booking,
+                    user=booking.customer,
+                    amount=booking.callout_fee,
+                    payment_method='paystack',
+                    payment_type='callout_fee',
+                    description=f"Callout fee for {booking.get_service_type_display()} service at {booking.location}",
+                    paystack_reference=f"FUNDI-{booking.id}-{secrets.token_hex(6).upper()}",
+                )
+
+        if payment.booking_id != booking.id:
+            raise PaystackError('Payment is not associated with the selected booking')
+
+        if payment.amount != booking.callout_fee or payment.user_id != booking.customer_id:
+            payment.amount = booking.callout_fee
+            payment.user = booking.customer
+            payment.payment_type = 'callout_fee'
+            payment.payment_method = 'paystack'
+            payment.description = f"Callout fee for {booking.get_service_type_display()} service at {booking.location}"
+            payment.save(update_fields=['amount', 'user', 'payment_type', 'payment_method', 'description'])
 
         # Initialize payment
         client = get_paystack_client()
