@@ -205,7 +205,7 @@ def initialize_payment_view(request):
             payment.status = 'pending'
             payment.save(update_fields=['amount', 'user', 'payment_type', 'status'])
 
-        init_response = initialize_payment_for_booking(booking, request, payment_obj=payment)
+        _, init_response = initialize_payment_for_booking(booking, request, payment_obj=payment)
 
         # Update booking status to pending_payment
         booking.status = 'pending_payment'
